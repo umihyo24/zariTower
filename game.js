@@ -34,6 +34,9 @@ const CONFIG = {
     baseXpToLevel: 80,
     xpGrowth: 1.35,
   },
+  levelUp: {
+    resumeGraceDuration: 0.65,
+  },
   assets: {
     playerImage: 'assets/crayfish.png',
     enemyImage: 'assets/tododon.png',
@@ -83,6 +86,8 @@ const gameState = {
   level: 1,
   score: 0,
   chosenMutations: [],
+  resumeGraceTimer: 0,
+  currentMutationOptions: [],
 };
 
 const BLOCK_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
@@ -109,7 +114,7 @@ function resetState() {
     time: 0, runTime: 0, isPaused: false, isGameOver: false, keys: {}, enemies: [],
     projectiles: [], particles: [],
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
-    level: 1, score: 0, chosenMutations: [],
+    level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, currentMutationOptions: [],
     player: {
       x: CONFIG.canvas.width / 2,
       y: CONFIG.canvas.height / 2,
@@ -225,20 +230,27 @@ function chooseMutations() {
 
 function showLevelUp() {
   gameState.isPaused = true;
+  gameState.currentMutationOptions = chooseMutations();
   mutationOptions.innerHTML = '';
-  chooseMutations().forEach(m => {
+  gameState.currentMutationOptions.forEach((m, index) => {
     const btn = document.createElement('button');
     btn.className = 'mutation-card';
     btn.innerHTML = `<h3>${m.name}</h3><p>${m.desc}</p>`;
-    btn.onclick = () => {
-      m.apply(gameState);
-      gameState.chosenMutations.push(m.name);
-      gameState.isPaused = false;
-      levelupModal.classList.add('hidden');
-    };
+    btn.onclick = () => selectMutation(index);
     mutationOptions.appendChild(btn);
   });
   levelupModal.classList.remove('hidden');
+}
+
+function selectMutation(index) {
+  const mutation = gameState.currentMutationOptions?.[index];
+  if (!mutation) return;
+  mutation.apply(gameState);
+  gameState.chosenMutations.push(mutation.name);
+  levelupModal.classList.add('hidden');
+  gameState.currentMutationOptions = [];
+  gameState.isPaused = false;
+  gameState.resumeGraceTimer = CONFIG.levelUp.resumeGraceDuration;
 }
 
 function addXp(amount) {
@@ -251,7 +263,7 @@ function addXp(amount) {
   }
 }
 
-function updatePlayer(dt) {
+function updatePlayerMovement(dt) {
   const p = gameState.player;
   const xMove = (gameState.keys.ArrowRight || gameState.keys.d ? 1 : 0) - (gameState.keys.ArrowLeft || gameState.keys.a ? 1 : 0);
   const yMove = (gameState.keys.ArrowDown || gameState.keys.s ? 1 : 0) - (gameState.keys.ArrowUp || gameState.keys.w ? 1 : 0);
@@ -260,7 +272,10 @@ function updatePlayer(dt) {
   p.y += (yMove / mag) * p.speed * dt;
   p.x = clamp(p.x, p.radius, CONFIG.canvas.width - p.radius);
   p.y = clamp(p.y, p.radius, CONFIG.canvas.height - p.radius);
+}
 
+function updatePlayerAttack(dt) {
+  const p = gameState.player;
   p.attackTimer -= dt;
   if (p.attackTimer <= 0) {
     const nearest = gameState.enemies
@@ -432,9 +447,21 @@ function updateEnemies(dt) {
 }
 
 function update(dt) {
-  if (gameState.isPaused || gameState.isGameOver) return;
+  if (gameState.isGameOver) return;
+  if (gameState.isPaused) return;
+
+  if (gameState.resumeGraceTimer > 0) {
+    gameState.resumeGraceTimer = Math.max(0, gameState.resumeGraceTimer - dt);
+    gameState.runTime += dt;
+    updatePlayerMovement(dt);
+    updateProjectiles(dt);
+    updateParticles(dt);
+    return;
+  }
+
   gameState.runTime += dt;
-  updatePlayer(dt);
+  updatePlayerMovement(dt);
+  updatePlayerAttack(dt);
   updateProjectiles(dt);
   updateParticles(dt);
   updateEnemies(dt);
@@ -581,6 +608,12 @@ function loop(ts) {
 }
 
 window.addEventListener('keydown', e => {
+  const isMutationSelectionActive = gameState.isPaused && (gameState.currentMutationOptions?.length || 0) > 0;
+  if (isMutationSelectionActive && ['1', '2', '3'].includes(e.key)) {
+    e.preventDefault();
+    selectMutation(Number(e.key) - 1);
+    return;
+  }
   if (BLOCK_KEYS.includes(e.key)) e.preventDefault();
   gameState.keys[e.key] = true;
 });
