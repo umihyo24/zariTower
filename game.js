@@ -1,0 +1,292 @@
+const CONFIG = {
+  canvas: { width: 960, height: 540 },
+  player: {
+    radius: 18,
+    color: '#ff8c4a',
+    speed: 220,
+    maxHp: 100,
+    attackRange: 130,
+    attackDamage: 18,
+    attackCooldown: 0.55,
+  },
+  enemy: {
+    baseRadius: 14,
+    baseSpeed: 70,
+    baseHp: 28,
+    touchDamage: 8,
+    damageCooldown: 0.7,
+    spawnInterval: 0.8,
+  },
+  progression: {
+    xpPerEnemy: 12,
+    baseXpToLevel: 80,
+    xpGrowth: 1.35,
+  },
+};
+
+const gameState = {
+  time: 0,
+  runTime: 0,
+  isPaused: false,
+  isGameOver: false,
+  keys: {},
+  images: {},
+  player: {},
+  enemies: [],
+  projectiles: [],
+  particles: [],
+  spawnTimer: 0,
+  damageTimer: 0,
+  xp: 0,
+  xpToNext: CONFIG.progression.baseXpToLevel,
+  level: 1,
+  score: 0,
+  chosenMutations: [],
+};
+
+const MUTATIONS = [
+  { id: 'hard_shell', name: 'Hard Shell', desc: '+25 max HP, heal 20', apply: s => { s.player.maxHp += 25; s.player.hp = Math.min(s.player.maxHp, s.player.hp + 20); } },
+  { id: 'claw_sharp', name: 'Razor Claws', desc: '+8 attack damage', apply: s => { s.player.attackDamage += 8; } },
+  { id: 'jet_tail', name: 'Jet Tail', desc: '+35 movement speed', apply: s => { s.player.speed += 35; } },
+  { id: 'sensing_antennae', name: 'Sensing Antennae', desc: '+25 attack range', apply: s => { s.player.attackRange += 25; } },
+  { id: 'rapid_strikes', name: 'Rapid Strikes', desc: '-0.08s attack cooldown', apply: s => { s.player.attackCooldown = Math.max(0.12, s.player.attackCooldown - 0.08); } },
+  { id: 'barbed_plating', name: 'Barbed Plating', desc: 'Reflect 20% touch damage', apply: s => { s.player.reflectPct += 0.2; } },
+];
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const levelupModal = document.getElementById('levelupModal');
+const mutationOptions = document.getElementById('mutationOptions');
+const gameOverModal = document.getElementById('gameOverModal');
+const finalStats = document.getElementById('finalStats');
+const restartBtn = document.getElementById('restartBtn');
+
+function resetState() {
+  Object.assign(gameState, {
+    time: 0, runTime: 0, isPaused: false, isGameOver: false, keys: {}, enemies: [],
+    spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
+    level: 1, score: 0, chosenMutations: [],
+    player: {
+      x: CONFIG.canvas.width / 2,
+      y: CONFIG.canvas.height / 2,
+      radius: CONFIG.player.radius,
+      color: CONFIG.player.color,
+      speed: CONFIG.player.speed,
+      hp: CONFIG.player.maxHp,
+      maxHp: CONFIG.player.maxHp,
+      attackRange: CONFIG.player.attackRange,
+      attackDamage: CONFIG.player.attackDamage,
+      attackCooldown: CONFIG.player.attackCooldown,
+      attackTimer: 0,
+      reflectPct: 0,
+    },
+  });
+  levelupModal.classList.add('hidden');
+  gameOverModal.classList.add('hidden');
+}
+
+function loadImage(key, src) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => resolve({ key, img, ok: true });
+    img.onerror = () => resolve({ key, img: null, ok: false });
+    img.src = src;
+  });
+}
+
+async function preloadImages() {
+  const results = await Promise.all([
+    loadImage('player', 'assets/crayfish.png'),
+    loadImage('enemy', 'assets/eel.png'),
+  ]);
+  results.forEach(r => gameState.images[r.key] = r);
+}
+
+function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+function rand(min, max) { return Math.random() * (max - min) + min; }
+function distance(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+function spawnEnemy() {
+  const edge = Math.floor(Math.random() * 4);
+  const margin = 30;
+  let x = 0, y = 0;
+  if (edge === 0) { x = rand(0, CONFIG.canvas.width); y = -margin; }
+  if (edge === 1) { x = CONFIG.canvas.width + margin; y = rand(0, CONFIG.canvas.height); }
+  if (edge === 2) { x = rand(0, CONFIG.canvas.width); y = CONFIG.canvas.height + margin; }
+  if (edge === 3) { x = -margin; y = rand(0, CONFIG.canvas.height); }
+
+  const difficulty = 1 + gameState.runTime * 0.03;
+  gameState.enemies.push({
+    x, y,
+    radius: CONFIG.enemy.baseRadius,
+    speed: CONFIG.enemy.baseSpeed * difficulty,
+    hp: CONFIG.enemy.baseHp * (1 + gameState.level * 0.04),
+  });
+}
+
+function chooseMutations() {
+  const pool = [...MUTATIONS].sort(() => Math.random() - 0.5);
+  return pool.slice(0, 3);
+}
+
+function showLevelUp() {
+  gameState.isPaused = true;
+  mutationOptions.innerHTML = '';
+  chooseMutations().forEach(m => {
+    const btn = document.createElement('button');
+    btn.className = 'mutation-card';
+    btn.innerHTML = `<h3>${m.name}</h3><p>${m.desc}</p>`;
+    btn.onclick = () => {
+      m.apply(gameState);
+      gameState.chosenMutations.push(m.name);
+      gameState.isPaused = false;
+      levelupModal.classList.add('hidden');
+    };
+    mutationOptions.appendChild(btn);
+  });
+  levelupModal.classList.remove('hidden');
+}
+
+function addXp(amount) {
+  gameState.xp += amount;
+  while (gameState.xp >= gameState.xpToNext) {
+    gameState.xp -= gameState.xpToNext;
+    gameState.level += 1;
+    gameState.xpToNext = Math.floor(gameState.xpToNext * CONFIG.progression.xpGrowth);
+    showLevelUp();
+  }
+}
+
+function updatePlayer(dt) {
+  const p = gameState.player;
+  const xMove = (gameState.keys.ArrowRight || gameState.keys.d ? 1 : 0) - (gameState.keys.ArrowLeft || gameState.keys.a ? 1 : 0);
+  const yMove = (gameState.keys.ArrowDown || gameState.keys.s ? 1 : 0) - (gameState.keys.ArrowUp || gameState.keys.w ? 1 : 0);
+  const mag = Math.hypot(xMove, yMove) || 1;
+  p.x += (xMove / mag) * p.speed * dt;
+  p.y += (yMove / mag) * p.speed * dt;
+  p.x = clamp(p.x, p.radius, CONFIG.canvas.width - p.radius);
+  p.y = clamp(p.y, p.radius, CONFIG.canvas.height - p.radius);
+
+  p.attackTimer -= dt;
+  if (p.attackTimer <= 0) {
+    const inRange = gameState.enemies
+      .map(e => ({ e, d: distance(e, p) }))
+      .filter(v => v.d <= p.attackRange)
+      .sort((a, b) => a.d - b.d)[0];
+    if (inRange) {
+      inRange.e.hp -= p.attackDamage;
+      p.attackTimer = p.attackCooldown;
+    }
+  }
+}
+
+function updateEnemies(dt) {
+  const p = gameState.player;
+  gameState.enemies.forEach(enemy => {
+    const dx = p.x - enemy.x;
+    const dy = p.y - enemy.y;
+    const d = Math.hypot(dx, dy) || 1;
+    enemy.x += (dx / d) * enemy.speed * dt;
+    enemy.y += (dy / d) * enemy.speed * dt;
+  });
+
+  gameState.damageTimer -= dt;
+  if (gameState.damageTimer <= 0) {
+    gameState.enemies.forEach(enemy => {
+      if (distance(enemy, p) < enemy.radius + p.radius) {
+        p.hp -= CONFIG.enemy.touchDamage;
+        if (p.reflectPct > 0) enemy.hp -= CONFIG.enemy.touchDamage * p.reflectPct;
+      }
+    });
+    gameState.damageTimer = CONFIG.enemy.damageCooldown;
+  }
+
+  const before = gameState.enemies.length;
+  gameState.enemies = gameState.enemies.filter(e => e.hp > 0);
+  const killed = before - gameState.enemies.length;
+  if (killed > 0) {
+    addXp(CONFIG.progression.xpPerEnemy * killed);
+    gameState.score += killed;
+  }
+}
+
+function update(dt) {
+  if (gameState.isPaused || gameState.isGameOver) return;
+  gameState.runTime += dt;
+  updatePlayer(dt);
+  updateEnemies(dt);
+
+  gameState.spawnTimer -= dt;
+  if (gameState.spawnTimer <= 0) {
+    spawnEnemy();
+    gameState.spawnTimer = Math.max(0.2, CONFIG.enemy.spawnInterval - gameState.runTime * 0.01);
+  }
+
+  if (gameState.player.hp <= 0) {
+    gameState.isGameOver = true;
+    finalStats.textContent = `Level ${gameState.level} • Defeated ${gameState.score} enemies • Survived ${gameState.runTime.toFixed(1)}s`;
+    gameOverModal.classList.remove('hidden');
+  }
+}
+
+function drawEntityWithFallback(entity, imageResult, fallbackColor) {
+  if (imageResult?.ok && imageResult.img) {
+    const s = entity.radius * 2.4;
+    ctx.drawImage(imageResult.img, entity.x - s / 2, entity.y - s / 2, s, s);
+  } else {
+    ctx.fillStyle = fallbackColor;
+    ctx.beginPath();
+    ctx.arc(entity.x, entity.y, entity.radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawHud() {
+  const p = gameState.player;
+  const hpPct = p.hp / p.maxHp;
+  const xpPct = gameState.xp / gameState.xpToNext;
+
+  ctx.fillStyle = '#0008';
+  ctx.fillRect(16, 16, 260, 90);
+  ctx.fillStyle = '#fff';
+  ctx.font = '14px sans-serif';
+  ctx.fillText(`HP: ${Math.ceil(p.hp)} / ${p.maxHp}`, 26, 36);
+  ctx.fillText(`Level: ${gameState.level}`, 26, 54);
+  ctx.fillText(`Kills: ${gameState.score}`, 26, 72);
+
+  ctx.fillStyle = '#2a334f';
+  ctx.fillRect(120, 26, 140, 10);
+  ctx.fillRect(120, 44, 140, 10);
+  ctx.fillStyle = '#ff6b6b';
+  ctx.fillRect(120, 26, 140 * hpPct, 10);
+  ctx.fillStyle = '#7be8ff';
+  ctx.fillRect(120, 44, 140 * xpPct, 10);
+}
+
+function render() {
+  ctx.clearRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+  ctx.fillStyle = '#0d1730';
+  ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+
+  drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a');
+  gameState.enemies.forEach(e => drawEntityWithFallback(e, gameState.images.enemy, '#85ff8a'));
+  drawHud();
+}
+
+function loop(ts) {
+  const dt = Math.min(0.033, (ts - gameState.time) / 1000 || 0);
+  gameState.time = ts;
+  update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener('keydown', e => { gameState.keys[e.key] = true; });
+window.addEventListener('keyup', e => { gameState.keys[e.key] = false; });
+restartBtn.addEventListener('click', () => resetState());
+
+(async function init() {
+  resetState();
+  await preloadImages();
+  requestAnimationFrame(loop);
+})();
