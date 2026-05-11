@@ -17,6 +17,13 @@ const CONFIG = {
     damageCooldown: 0.7,
     spawnInterval: 0.8,
   },
+  projectile: {
+    radius: 6,
+    speed: 420,
+    life: 0.9,
+    color: '#7be8ff',
+    hitColor: '#c8f7ff',
+  },
   progression: {
     xpPerEnemy: 12,
     baseXpToLevel: 80,
@@ -44,6 +51,8 @@ const gameState = {
   chosenMutations: [],
 };
 
+const BLOCK_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
+
 const MUTATIONS = [
   { id: 'hard_shell', name: 'Hard Shell', desc: '+25 max HP, heal 20', apply: s => { s.player.maxHp += 25; s.player.hp = Math.min(s.player.maxHp, s.player.hp + 20); } },
   { id: 'claw_sharp', name: 'Razor Claws', desc: '+8 attack damage', apply: s => { s.player.attackDamage += 8; } },
@@ -64,6 +73,7 @@ const restartBtn = document.getElementById('restartBtn');
 function resetState() {
   Object.assign(gameState, {
     time: 0, runTime: 0, isPaused: false, isGameOver: false, keys: {}, enemies: [],
+    projectiles: [], particles: [],
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
     level: 1, score: 0, chosenMutations: [],
     player: {
@@ -169,15 +179,59 @@ function updatePlayer(dt) {
 
   p.attackTimer -= dt;
   if (p.attackTimer <= 0) {
-    const inRange = gameState.enemies
+    const nearest = gameState.enemies
       .map(e => ({ e, d: distance(e, p) }))
       .filter(v => v.d <= p.attackRange)
       .sort((a, b) => a.d - b.d)[0];
-    if (inRange) {
-      inRange.e.hp -= p.attackDamage;
+
+    if (nearest?.e) {
+      const target = nearest.e;
+      const dx = target.x - p.x;
+      const dy = target.y - p.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const speed = CONFIG.projectile.speed;
+      gameState.projectiles.push({
+        x: p.x,
+        y: p.y,
+        vx: (dx / d) * speed,
+        vy: (dy / d) * speed,
+        radius: CONFIG.projectile.radius,
+        damage: p.attackDamage,
+        life: CONFIG.projectile.life,
+      });
       p.attackTimer = p.attackCooldown;
     }
   }
+}
+
+function updateProjectiles(dt) {
+  const maxX = CONFIG.canvas.width;
+  const maxY = CONFIG.canvas.height;
+  const projectiles = gameState.projectiles || [];
+
+  projectiles.forEach(proj => {
+    proj.x += proj.vx * dt;
+    proj.y += proj.vy * dt;
+    proj.life -= dt;
+
+    if (proj.life <= 0) {
+      proj._remove = true;
+      return;
+    }
+
+    if (proj.x < -proj.radius || proj.x > maxX + proj.radius || proj.y < -proj.radius || proj.y > maxY + proj.radius) {
+      proj._remove = true;
+      return;
+    }
+
+    const hitEnemy = gameState.enemies.find(enemy => distance(proj, enemy) <= proj.radius + enemy.radius);
+    if (hitEnemy) {
+      hitEnemy.hp -= proj.damage;
+      proj._remove = true;
+    }
+  });
+
+  gameState.projectiles = projectiles.filter(proj => !proj._remove);
 }
 
 function updateEnemies(dt) {
@@ -214,6 +268,7 @@ function update(dt) {
   if (gameState.isPaused || gameState.isGameOver) return;
   gameState.runTime += dt;
   updatePlayer(dt);
+  updateProjectiles(dt);
   updateEnemies(dt);
 
   gameState.spawnTimer -= dt;
@@ -239,6 +294,20 @@ function drawEntityWithFallback(entity, imageResult, fallbackColor) {
     ctx.arc(entity.x, entity.y, entity.radius, 0, Math.PI * 2);
     ctx.fill();
   }
+}
+
+function drawProjectiles() {
+  const projectiles = gameState.projectiles || [];
+  projectiles.forEach(proj => {
+    ctx.save();
+    ctx.shadowBlur = 14;
+    ctx.shadowColor = CONFIG.projectile.hitColor;
+    ctx.fillStyle = CONFIG.projectile.color;
+    ctx.beginPath();
+    ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
 }
 
 function drawHud() {
@@ -268,8 +337,9 @@ function render() {
   ctx.fillStyle = '#0d1730';
   ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
 
-  drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a');
   gameState.enemies.forEach(e => drawEntityWithFallback(e, gameState.images.enemy, '#85ff8a'));
+  drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a');
+  drawProjectiles();
   drawHud();
 }
 
@@ -281,8 +351,14 @@ function loop(ts) {
   requestAnimationFrame(loop);
 }
 
-window.addEventListener('keydown', e => { gameState.keys[e.key] = true; });
-window.addEventListener('keyup', e => { gameState.keys[e.key] = false; });
+window.addEventListener('keydown', e => {
+  if (BLOCK_KEYS.includes(e.key)) e.preventDefault();
+  gameState.keys[e.key] = true;
+});
+window.addEventListener('keyup', e => {
+  if (BLOCK_KEYS.includes(e.key)) e.preventDefault();
+  gameState.keys[e.key] = false;
+});
 restartBtn.addEventListener('click', () => resetState());
 
 (async function init() {
