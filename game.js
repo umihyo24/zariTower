@@ -24,6 +24,11 @@ const CONFIG = {
     color: '#7be8ff',
     hitColor: '#c8f7ff',
   },
+  combat: {
+    knockbackForce: 180,
+    knockbackDamping: 8,
+    maxKnockbackSpeed: 260,
+  },
   progression: {
     xpPerEnemy: 12,
     baseXpToLevel: 80,
@@ -156,6 +161,8 @@ function spawnEnemy() {
     speed: CONFIG.enemy.baseSpeed * difficulty,
     hp: CONFIG.enemy.baseHp * (1 + gameState.level * 0.04),
     maxHp: CONFIG.enemy.baseHp * (1 + gameState.level * 0.04),
+    knockbackX: 0,
+    knockbackY: 0,
   });
 }
 
@@ -274,6 +281,37 @@ function updateProjectiles(dt) {
     const hitEnemy = gameState.enemies.find(enemy => distance(proj, enemy) <= proj.radius + enemy.radius);
     if (hitEnemy) {
       hitEnemy.hp -= proj.damage;
+
+      const dirFromProjectileX = (hitEnemy.x ?? 0) - (proj.x ?? 0);
+      const dirFromProjectileY = (hitEnemy.y ?? 0) - (proj.y ?? 0);
+      let knockbackDistance = Math.hypot(dirFromProjectileX, dirFromProjectileY);
+
+      let dirX = 0;
+      let dirY = 0;
+      if (knockbackDistance > 0) {
+        dirX = dirFromProjectileX / knockbackDistance;
+        dirY = dirFromProjectileY / knockbackDistance;
+      } else {
+        const player = gameState.player || { x: 0, y: 0 };
+        const fallbackDirX = (hitEnemy.x ?? 0) - (player.x ?? 0);
+        const fallbackDirY = (hitEnemy.y ?? 0) - (player.y ?? 0);
+        knockbackDistance = Math.hypot(fallbackDirX, fallbackDirY);
+        if (knockbackDistance > 0) {
+          dirX = fallbackDirX / knockbackDistance;
+          dirY = fallbackDirY / knockbackDistance;
+        }
+      }
+
+      hitEnemy.knockbackX = (hitEnemy.knockbackX ?? 0) + dirX * CONFIG.combat.knockbackForce;
+      hitEnemy.knockbackY = (hitEnemy.knockbackY ?? 0) + dirY * CONFIG.combat.knockbackForce;
+
+      const knockbackSpeed = Math.hypot(hitEnemy.knockbackX, hitEnemy.knockbackY);
+      if (knockbackSpeed > CONFIG.combat.maxKnockbackSpeed && knockbackSpeed > 0) {
+        const scale = CONFIG.combat.maxKnockbackSpeed / knockbackSpeed;
+        hitEnemy.knockbackX *= scale;
+        hitEnemy.knockbackY *= scale;
+      }
+
       spawnHitParticles(proj.x, proj.y);
       proj._remove = true;
     }
@@ -296,11 +334,32 @@ function updateParticles(dt) {
 function updateEnemies(dt) {
   const p = gameState.player;
   gameState.enemies.forEach(enemy => {
-    const dx = p.x - enemy.x;
-    const dy = p.y - enemy.y;
+    if (!enemy) return;
+
+    const dx = (p.x ?? 0) - (enemy.x ?? 0);
+    const dy = (p.y ?? 0) - (enemy.y ?? 0);
     const d = Math.hypot(dx, dy) || 1;
-    enemy.x += (dx / d) * enemy.speed * dt;
-    enemy.y += (dy / d) * enemy.speed * dt;
+    enemy.x = (enemy.x ?? 0) + (dx / d) * (enemy.speed ?? 0) * dt;
+    enemy.y = (enemy.y ?? 0) + (dy / d) * (enemy.speed ?? 0) * dt;
+
+    enemy.knockbackX = enemy.knockbackX ?? 0;
+    enemy.knockbackY = enemy.knockbackY ?? 0;
+
+    enemy.x += enemy.knockbackX * dt;
+    enemy.y += enemy.knockbackY * dt;
+
+    enemy.knockbackX -= enemy.knockbackX * CONFIG.combat.knockbackDamping * dt;
+    enemy.knockbackY -= enemy.knockbackY * CONFIG.combat.knockbackDamping * dt;
+
+    if (Math.abs(enemy.knockbackX) < 0.5) enemy.knockbackX = 0;
+    if (Math.abs(enemy.knockbackY) < 0.5) enemy.knockbackY = 0;
+
+    if (!Number.isFinite(enemy.x) || !Number.isFinite(enemy.y)) {
+      enemy.x = Number.isFinite(enemy.x) ? enemy.x : (p.x ?? CONFIG.canvas.width / 2);
+      enemy.y = Number.isFinite(enemy.y) ? enemy.y : (p.y ?? CONFIG.canvas.height / 2);
+      enemy.knockbackX = 0;
+      enemy.knockbackY = 0;
+    }
   });
 
   gameState.damageTimer -= dt;
