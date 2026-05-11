@@ -31,7 +31,7 @@ const CONFIG = {
   },
   assets: {
     playerImage: 'assets/crayfish.png',
-    enemyImage: 'assets/eel.png',
+    enemyImage: 'assets/tododon.png',
   },
   visuals: {
     playerShadowColor: 'rgba(0, 0, 0, 0.35)',
