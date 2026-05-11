@@ -10,6 +10,7 @@ const CONFIG = {
     attackCooldown: 0.55,
     pickupRadius: 42,
     magnetRadius: 90,
+    projectilePierce: 0,
   },
   enemy: {
     baseRadius: 14,
@@ -44,6 +45,7 @@ const CONFIG = {
   upgrades: {
     pickupRadiusBonus: 18,
     magnetRadiusBonus: 35,
+    projectilePierceBonus: 1,
   },
   combat: {
     knockbackForce: 180,
@@ -112,6 +114,7 @@ const gameState = {
   chosenMutations: [],
   resumeGraceTimer: 0,
   currentMutationOptions: [],
+  nextEnemyId: 1,
 };
 
 const BLOCK_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
@@ -125,6 +128,7 @@ const MUTATIONS = [
   { id: 'barbed_plating', name: 'Barbed Plating', desc: 'Reflect 20% touch damage', apply: s => { s.player.reflectPct += 0.2; } },
   { id: 'wide_sense', name: 'Wide Sense', desc: '+18 pickup radius', apply: s => { if (s?.player) s.player.pickupRadius += CONFIG.upgrades.pickupRadiusBonus; } },
   { id: 'magnetic_sense', name: 'Magnetic Sense', desc: '+35 magnet radius', apply: s => { if (s?.player) s.player.magnetRadius += CONFIG.upgrades.magnetRadiusBonus; } },
+  { id: 'piercing_shot', name: 'Piercing Shot', desc: '+1 projectile pierce', apply: s => { if (s?.player) s.player.projectilePierce += CONFIG.upgrades.projectilePierceBonus; } },
 ];
 
 const canvas = document.getElementById('gameCanvas');
@@ -140,7 +144,7 @@ function resetState() {
     time: 0, runTime: 0, isPaused: false, isGameOver: false, keys: {}, enemies: [],
     projectiles: [], particles: [], xpGems: [],
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
-    level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, currentMutationOptions: [],
+    level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, currentMutationOptions: [], nextEnemyId: 1,
     player: {
       x: CONFIG.canvas.width / 2,
       y: CONFIG.canvas.height / 2,
@@ -154,6 +158,7 @@ function resetState() {
       attackCooldown: CONFIG.player.attackCooldown,
       pickupRadius: CONFIG.player.pickupRadius,
       magnetRadius: CONFIG.player.magnetRadius,
+      projectilePierce: CONFIG.player.projectilePierce,
       attackTimer: 0,
       reflectPct: 0,
     },
@@ -231,6 +236,7 @@ function spawnEnemy() {
   const hp = baseHp * hpMultiplier;
 
   gameState.enemies.push({
+    id: gameState.nextEnemyId++,
     x, y,
     radius: CONFIG.enemy.baseRadius,
     speed: (Number.isFinite(CONFIG.enemy.baseSpeed) ? CONFIG.enemy.baseSpeed : 0) * speedMultiplier,
@@ -379,6 +385,8 @@ function updatePlayerAttack(dt) {
         radius: CONFIG.projectile.radius,
         damage: p.attackDamage,
         life: CONFIG.projectile.life,
+        pierceLeft: Number.isFinite(p.projectilePierce) ? p.projectilePierce : 0,
+        hitEnemyIds: new Set(),
       });
       p.attackTimer = p.attackCooldown;
     }
@@ -405,7 +413,13 @@ function updateProjectiles(dt) {
       return;
     }
 
-    const hitEnemy = gameState.enemies.find(enemy => distance(proj, enemy) <= proj.radius + enemy.radius);
+    const projectileHitIds = proj.hitEnemyIds instanceof Set ? proj.hitEnemyIds : new Set(proj.hitEnemyIds || []);
+    proj.hitEnemyIds = projectileHitIds;
+    const hitEnemy = gameState.enemies.find(enemy => {
+      if (!enemy) return false;
+      if (projectileHitIds.has(enemy.id)) return false;
+      return distance(proj, enemy) <= proj.radius + enemy.radius;
+    });
     if (hitEnemy) {
       hitEnemy.hp -= proj.damage;
 
@@ -440,7 +454,11 @@ function updateProjectiles(dt) {
       }
 
       spawnHitParticles(proj.x, proj.y);
-      proj._remove = true;
+      projectileHitIds.add(hitEnemy.id);
+      proj.pierceLeft = (Number.isFinite(proj.pierceLeft) ? proj.pierceLeft : 0) - 1;
+      if (proj.pierceLeft < 0) {
+        proj._remove = true;
+      }
     }
   });
 
@@ -663,7 +681,9 @@ function drawProjectiles() {
   const projectiles = gameState.projectiles || [];
   projectiles.forEach(proj => {
     ctx.save();
-    ctx.shadowBlur = proj.radius * 3;
+    const pierceBoost = Math.max(0, Number.isFinite(proj.pierceLeft) ? proj.pierceLeft : 0);
+    const glowSize = proj.radius * (3 + pierceBoost * 0.35);
+    ctx.shadowBlur = glowSize;
     ctx.shadowColor = CONFIG.visuals.projectileGlowColor;
     ctx.fillStyle = CONFIG.visuals.projectileGlowColor;
     ctx.beginPath();
