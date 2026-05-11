@@ -1,0 +1,90 @@
+:root {
+  color-scheme: dark;
+  --bg: #0c1220;
+  --panel: #1a2338cc;
+  --line: #36507a;
+  --text: #e9f1ff;
+  --accent: #7be8ff;
+  --danger: #ff6b6b;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Inter, system-ui, sans-serif;
+  color: var(--text);
+  background: radial-gradient(circle at top, #15233d, var(--bg));
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+.game-shell {
+  width: min(100%, 1000px);
+  padding: 1rem;
+}
+
+.hud-top, .hud-bottom {
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.canvas-wrap {
+  position: relative;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 40px #0007;
+}
+
+canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #0b1020;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #0009;
+  z-index: 10;
+}
+
+.hidden { display: none; }
+
+.panel {
+  width: min(92%, 720px);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+.mutation-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.mutation-card, #restartBtn {
+  border: 1px solid #4f6d99;
+  border-radius: 10px;
+  background: #1a2f4e;
+  color: var(--text);
+  padding: 0.7rem;
+  cursor: pointer;
+}
+.mutation-card:hover, #restartBtn:hover { border-color: var(--accent); }
+
+.mutation-card h3 {
+  margin: 0 0 0.4rem;
+  color: var(--accent);
+  font-size: 1rem;
+}
+
+@media (max-width: 720px) {
+  .mutation-options { grid-template-columns: 1fr; }
+}
