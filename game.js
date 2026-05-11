@@ -8,6 +8,7 @@ const CONFIG = {
     attackRange: 130,
     attackDamage: 18,
     attackCooldown: 0.55,
+    pickupRadius: 42,
   },
   enemy: {
     baseRadius: 14,
@@ -29,7 +30,9 @@ const CONFIG = {
     color: '#7be8ff',
     glowColor: 'rgba(123,232,255,0.35)',
     value: 12,
-    pickupDistance: 26,
+  },
+  upgrades: {
+    pickupRadiusBonus: 18,
   },
   combat: {
     knockbackForce: 180,
@@ -52,6 +55,7 @@ const CONFIG = {
     playerShadowColor: 'rgba(0, 0, 0, 0.35)',
     enemyShadowColor: 'rgba(0, 0, 0, 0.25)',
     playerRangeColor: 'rgba(123, 232, 255, 0.14)',
+    pickupRadiusColor: 'rgba(123, 232, 255, 0.08)',
     playerRangeLineWidth: 1.5,
     entityShadowRadiusScale: 0.85,
     entityImageScale: 2.4,
@@ -107,6 +111,7 @@ const MUTATIONS = [
   { id: 'sensing_antennae', name: 'Sensing Antennae', desc: '+25 attack range', apply: s => { s.player.attackRange += 25; } },
   { id: 'rapid_strikes', name: 'Rapid Strikes', desc: '-0.08s attack cooldown', apply: s => { s.player.attackCooldown = Math.max(0.12, s.player.attackCooldown - 0.08); } },
   { id: 'barbed_plating', name: 'Barbed Plating', desc: 'Reflect 20% touch damage', apply: s => { s.player.reflectPct += 0.2; } },
+  { id: 'wide_sense', name: 'Wide Sense', desc: '+18 pickup radius', apply: s => { if (s?.player) s.player.pickupRadius += CONFIG.upgrades.pickupRadiusBonus; } },
 ];
 
 const canvas = document.getElementById('gameCanvas');
@@ -134,6 +139,7 @@ function resetState() {
       attackRange: CONFIG.player.attackRange,
       attackDamage: CONFIG.player.attackDamage,
       attackCooldown: CONFIG.player.attackCooldown,
+      pickupRadius: CONFIG.player.pickupRadius,
       attackTimer: 0,
       reflectPct: 0,
     },
@@ -470,10 +476,11 @@ function updateEnemies(dt) {
 }
 
 function updateXpGems() {
+  if (gameState.isPaused) return;
   const gems = gameState.xpGems || [];
   const player = gameState.player || { x: 0, y: 0, radius: 0 };
-  const pickupDistance = Number.isFinite(CONFIG.xpGem?.pickupDistance) && CONFIG.xpGem.pickupDistance >= 0
-    ? CONFIG.xpGem.pickupDistance
+  const pickupRadius = Number.isFinite(player?.pickupRadius) && player.pickupRadius >= 0
+    ? player.pickupRadius
     : 0;
   const nextGems = [];
 
@@ -485,7 +492,7 @@ function updateXpGems() {
     const value = Number.isFinite(gem.value) && gem.value > 0 ? gem.value : 0;
     if (value <= 0) return;
     const dist = Math.hypot((player.x ?? 0) - x, (player.y ?? 0) - y);
-    if (dist <= pickupDistance + radius + (player.radius ?? 0)) {
+    if (dist <= pickupRadius) {
       addXp(value);
       return;
     }
@@ -658,6 +665,11 @@ function render() {
   ctx.clearRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
   ctx.fillStyle = '#0d1730';
   ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+
+  ctx.fillStyle = CONFIG.visuals.pickupRadiusColor;
+  ctx.beginPath();
+  ctx.arc(gameState.player.x, gameState.player.y, gameState.player.pickupRadius || 0, 0, Math.PI * 2);
+  ctx.fill();
 
   ctx.strokeStyle = CONFIG.visuals.playerRangeColor;
   ctx.lineWidth = CONFIG.visuals.playerRangeLineWidth;
