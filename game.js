@@ -9,6 +9,7 @@ const CONFIG = {
     attackDamage: 18,
     attackCooldown: 0.55,
     pickupRadius: 42,
+    magnetRadius: 90,
   },
   enemy: {
     baseRadius: 14,
@@ -30,9 +31,12 @@ const CONFIG = {
     color: '#7be8ff',
     glowColor: 'rgba(123,232,255,0.35)',
     value: 12,
+    magnetSpeed: 240,
+    maxMagnetSpeed: 420,
   },
   upgrades: {
     pickupRadiusBonus: 18,
+    magnetRadiusBonus: 35,
   },
   combat: {
     knockbackForce: 180,
@@ -56,6 +60,7 @@ const CONFIG = {
     enemyShadowColor: 'rgba(0, 0, 0, 0.25)',
     playerRangeColor: 'rgba(123, 232, 255, 0.14)',
     pickupRadiusColor: 'rgba(123, 232, 255, 0.08)',
+    magnetRadiusColor: 'rgba(123, 232, 255, 0.035)',
     playerRangeLineWidth: 1.5,
     entityShadowRadiusScale: 0.85,
     entityImageScale: 2.4,
@@ -112,6 +117,7 @@ const MUTATIONS = [
   { id: 'rapid_strikes', name: 'Rapid Strikes', desc: '-0.08s attack cooldown', apply: s => { s.player.attackCooldown = Math.max(0.12, s.player.attackCooldown - 0.08); } },
   { id: 'barbed_plating', name: 'Barbed Plating', desc: 'Reflect 20% touch damage', apply: s => { s.player.reflectPct += 0.2; } },
   { id: 'wide_sense', name: 'Wide Sense', desc: '+18 pickup radius', apply: s => { if (s?.player) s.player.pickupRadius += CONFIG.upgrades.pickupRadiusBonus; } },
+  { id: 'magnetic_sense', name: 'Magnetic Sense', desc: '+35 magnet radius', apply: s => { if (s?.player) s.player.magnetRadius += CONFIG.upgrades.magnetRadiusBonus; } },
 ];
 
 const canvas = document.getElementById('gameCanvas');
@@ -140,6 +146,7 @@ function resetState() {
       attackDamage: CONFIG.player.attackDamage,
       attackCooldown: CONFIG.player.attackCooldown,
       pickupRadius: CONFIG.player.pickupRadius,
+      magnetRadius: CONFIG.player.magnetRadius,
       attackTimer: 0,
       reflectPct: 0,
     },
@@ -249,6 +256,8 @@ function spawnXpGem(x, y, value) {
     y: gemY,
     radius: gemRadius,
     value: gemValue,
+    vx: 0,
+    vy: 0,
   });
 }
 
@@ -475,13 +484,22 @@ function updateEnemies(dt) {
   gameState.enemies = aliveEnemies;
 }
 
-function updateXpGems() {
+function updateXpGems(dt) {
   if (gameState.isPaused) return;
   const gems = gameState.xpGems || [];
   const player = gameState.player || { x: 0, y: 0, radius: 0 };
   const pickupRadius = Number.isFinite(player?.pickupRadius) && player.pickupRadius >= 0
     ? player.pickupRadius
     : 0;
+  const magnetRadius = Number.isFinite(player?.magnetRadius) && player.magnetRadius >= 0
+    ? player.magnetRadius
+    : 0;
+  const magnetSpeed = Number.isFinite(CONFIG.xpGem?.magnetSpeed) && CONFIG.xpGem.magnetSpeed >= 0
+    ? CONFIG.xpGem.magnetSpeed
+    : 0;
+  const maxMagnetSpeed = Number.isFinite(CONFIG.xpGem?.maxMagnetSpeed) && CONFIG.xpGem.maxMagnetSpeed >= 0
+    ? CONFIG.xpGem.maxMagnetSpeed
+    : magnetSpeed;
   const nextGems = [];
 
   gems.forEach(gem => {
@@ -491,12 +509,33 @@ function updateXpGems() {
     const radius = Number.isFinite(gem.radius) && gem.radius > 0 ? gem.radius : (CONFIG.xpGem.radius || 1);
     const value = Number.isFinite(gem.value) && gem.value > 0 ? gem.value : 0;
     if (value <= 0) return;
-    const dist = Math.hypot((player.x ?? 0) - x, (player.y ?? 0) - y);
+    const playerX = player.x ?? 0;
+    const playerY = player.y ?? 0;
+    const dx = playerX - x;
+    const dy = playerY - y;
+    const dist = Math.hypot(dx, dy);
     if (dist <= pickupRadius) {
       addXp(value);
       return;
     }
-    nextGems.push({ x, y, radius, value });
+    let nextX = x;
+    let nextY = y;
+    let vx = Number.isFinite(gem.vx) ? gem.vx : 0;
+    let vy = Number.isFinite(gem.vy) ? gem.vy : 0;
+    if (dist > 0 && dist <= magnetRadius) {
+      const dirX = dx / dist;
+      const dirY = dy / dist;
+      const targetSpeed = clamp(magnetSpeed, 0, maxMagnetSpeed);
+      vx = dirX * targetSpeed;
+      vy = dirY * targetSpeed;
+      nextX += vx * dt;
+      nextY += vy * dt;
+    } else {
+      vx = 0;
+      vy = 0;
+    }
+    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;
+    nextGems.push({ x: nextX, y: nextY, radius, value, vx, vy });
   });
 
   gameState.xpGems = nextGems;
@@ -669,6 +708,11 @@ function render() {
   ctx.fillStyle = CONFIG.visuals.pickupRadiusColor;
   ctx.beginPath();
   ctx.arc(gameState.player.x, gameState.player.y, gameState.player.pickupRadius || 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = CONFIG.visuals.magnetRadiusColor;
+  ctx.beginPath();
+  ctx.arc(gameState.player.x, gameState.player.y, gameState.player.magnetRadius || 0, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.strokeStyle = CONFIG.visuals.playerRangeColor;
