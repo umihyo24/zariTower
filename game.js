@@ -8,6 +8,7 @@ const CONFIG = {
     attackRange: 130,
     attackDamage: 18,
     attackCooldown: 0.55,
+    pickupRadius: 42,
   },
   enemy: {
     baseRadius: 14,
@@ -34,6 +35,13 @@ const CONFIG = {
     baseXpToLevel: 80,
     xpGrowth: 1.35,
   },
+  xpGem: {
+    radius: 6,
+    color: '#6ee7b7',
+  },
+  upgrades: {
+    pickupRadiusBonus: 18,
+  },
   assets: {
     playerImage: 'assets/crayfish.png',
     enemyImage: 'assets/tododon.png',
@@ -42,6 +50,7 @@ const CONFIG = {
     playerShadowColor: 'rgba(0, 0, 0, 0.35)',
     enemyShadowColor: 'rgba(0, 0, 0, 0.25)',
     playerRangeColor: 'rgba(123, 232, 255, 0.14)',
+    pickupRadiusColor: 'rgba(123, 232, 255, 0.08)',
     playerRangeLineWidth: 1.5,
     entityShadowRadiusScale: 0.85,
     entityImageScale: 2.4,
@@ -76,6 +85,7 @@ const gameState = {
   enemies: [],
   projectiles: [],
   particles: [],
+  xpGems: [],
   spawnTimer: 0,
   damageTimer: 0,
   xp: 0,
@@ -94,6 +104,15 @@ const MUTATIONS = [
   { id: 'sensing_antennae', name: 'Sensing Antennae', desc: '+25 attack range', apply: s => { s.player.attackRange += 25; } },
   { id: 'rapid_strikes', name: 'Rapid Strikes', desc: '-0.08s attack cooldown', apply: s => { s.player.attackCooldown = Math.max(0.12, s.player.attackCooldown - 0.08); } },
   { id: 'barbed_plating', name: 'Barbed Plating', desc: 'Reflect 20% touch damage', apply: s => { s.player.reflectPct += 0.2; } },
+  {
+    id: 'wide_sense',
+    name: 'Wide Sense',
+    desc: `+${CONFIG.upgrades.pickupRadiusBonus} pickup radius`,
+    apply: s => {
+      if (!s?.player) return;
+      s.player.pickupRadius += CONFIG.upgrades.pickupRadiusBonus;
+    },
+  },
 ];
 
 const canvas = document.getElementById('gameCanvas');
@@ -108,6 +127,7 @@ function resetState() {
   Object.assign(gameState, {
     time: 0, runTime: 0, isPaused: false, isGameOver: false, keys: {}, enemies: [],
     projectiles: [], particles: [],
+    xpGems: [],
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
     level: 1, score: 0, chosenMutations: [],
     player: {
@@ -121,6 +141,7 @@ function resetState() {
       attackRange: CONFIG.player.attackRange,
       attackDamage: CONFIG.player.attackDamage,
       attackCooldown: CONFIG.player.attackCooldown,
+      pickupRadius: CONFIG.player.pickupRadius,
       attackTimer: 0,
       reflectPct: 0,
     },
@@ -422,13 +443,39 @@ function updateEnemies(dt) {
     if (!enemy) return;
     if ((enemy.hp ?? 0) <= 0) {
       createDeathEffect(enemy);
-      addXp(CONFIG.progression.xpPerEnemy);
+      gameState.xpGems.push({
+        x: enemy.x ?? 0,
+        y: enemy.y ?? 0,
+        radius: CONFIG.xpGem.radius,
+        xp: CONFIG.progression.xpPerEnemy,
+        collected: false,
+      });
       gameState.score += 1;
       return;
     }
     aliveEnemies.push(enemy);
   });
   gameState.enemies = aliveEnemies;
+}
+
+function updateXpGems() {
+  if (gameState.isPaused || gameState.isGameOver) return;
+  const player = gameState.player;
+  if (!player) return;
+  const pickupRadius = Number.isFinite(player.pickupRadius) ? player.pickupRadius : CONFIG.player.pickupRadius;
+  const nextGems = [];
+  const gems = gameState.xpGems || [];
+  gems.forEach(gem => {
+    if (!gem || gem.collected) return;
+    const dist = distance(player, gem);
+    if (dist <= pickupRadius) {
+      gem.collected = true;
+      addXp(gem.xp ?? 0);
+      return;
+    }
+    nextGems.push(gem);
+  });
+  gameState.xpGems = nextGems;
 }
 
 function update(dt) {
@@ -438,6 +485,7 @@ function update(dt) {
   updateProjectiles(dt);
   updateParticles(dt);
   updateEnemies(dt);
+  updateXpGems();
 
   gameState.spawnTimer -= dt;
   if (gameState.spawnTimer <= 0) {
@@ -527,6 +575,20 @@ function drawParticles() {
   });
 }
 
+function drawXpGems() {
+  const gems = gameState.xpGems || [];
+  gems.forEach(gem => {
+    if (!gem || gem.collected) return;
+    const x = Number.isFinite(gem.x) ? gem.x : 0;
+    const y = Number.isFinite(gem.y) ? gem.y : 0;
+    const radius = Number.isFinite(gem.radius) && gem.radius > 0 ? gem.radius : CONFIG.xpGem.radius;
+    ctx.fillStyle = CONFIG.xpGem.color;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
 function drawHud() {
   const p = gameState.player;
   const hpPct = p.hp / p.maxHp;
@@ -560,8 +622,14 @@ function render() {
   ctx.arc(gameState.player.x, gameState.player.y, gameState.player.attackRange, 0, Math.PI * 2);
   ctx.stroke();
 
+  ctx.fillStyle = CONFIG.visuals.pickupRadiusColor;
+  ctx.beginPath();
+  ctx.arc(gameState.player.x, gameState.player.y, gameState.player.pickupRadius, 0, Math.PI * 2);
+  ctx.fill();
+
   drawParticles();
   drawProjectiles();
+  drawXpGems();
   gameState.enemies.forEach(e => {
     drawEntityShadow(e, CONFIG.visuals.enemyShadowColor);
     drawEntityWithFallback(e, gameState.images.enemy, '#85ff8a');
