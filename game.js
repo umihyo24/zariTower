@@ -24,6 +24,13 @@ const CONFIG = {
     color: '#7be8ff',
     hitColor: '#c8f7ff',
   },
+  xpGem: {
+    radius: 7,
+    color: '#7be8ff',
+    glowColor: 'rgba(123,232,255,0.35)',
+    value: 12,
+    pickupDistance: 26,
+  },
   combat: {
     knockbackForce: 180,
     knockbackDamping: 8,
@@ -79,6 +86,7 @@ const gameState = {
   enemies: [],
   projectiles: [],
   particles: [],
+  xpGems: [],
   spawnTimer: 0,
   damageTimer: 0,
   xp: 0,
@@ -112,7 +120,7 @@ const restartBtn = document.getElementById('restartBtn');
 function resetState() {
   Object.assign(gameState, {
     time: 0, runTime: 0, isPaused: false, isGameOver: false, keys: {}, enemies: [],
-    projectiles: [], particles: [],
+    projectiles: [], particles: [], xpGems: [],
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
     level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, currentMutationOptions: [],
     player: {
@@ -221,6 +229,21 @@ function createDeathEffect(enemy) {
       color,
     });
   }
+}
+
+function spawnXpGem(x, y, value) {
+  const gemRadius = Number.isFinite(CONFIG.xpGem?.radius) && CONFIG.xpGem.radius > 0 ? CONFIG.xpGem.radius : 7;
+  const gemValue = Number.isFinite(value) && value > 0
+    ? value
+    : (Number.isFinite(CONFIG.xpGem?.value) && CONFIG.xpGem.value > 0 ? CONFIG.xpGem.value : 1);
+  const gemX = Number.isFinite(x) ? x : 0;
+  const gemY = Number.isFinite(y) ? y : 0;
+  gameState.xpGems.push({
+    x: gemX,
+    y: gemY,
+    radius: gemRadius,
+    value: gemValue,
+  });
 }
 
 function chooseMutations() {
@@ -437,13 +460,39 @@ function updateEnemies(dt) {
     if (!enemy) return;
     if ((enemy.hp ?? 0) <= 0) {
       createDeathEffect(enemy);
-      addXp(CONFIG.progression.xpPerEnemy);
+      spawnXpGem(enemy.x, enemy.y, CONFIG.xpGem.value);
       gameState.score += 1;
       return;
     }
     aliveEnemies.push(enemy);
   });
   gameState.enemies = aliveEnemies;
+}
+
+function updateXpGems() {
+  const gems = gameState.xpGems || [];
+  const player = gameState.player || { x: 0, y: 0, radius: 0 };
+  const pickupDistance = Number.isFinite(CONFIG.xpGem?.pickupDistance) && CONFIG.xpGem.pickupDistance >= 0
+    ? CONFIG.xpGem.pickupDistance
+    : 0;
+  const nextGems = [];
+
+  gems.forEach(gem => {
+    if (!gem) return;
+    const x = Number.isFinite(gem.x) ? gem.x : 0;
+    const y = Number.isFinite(gem.y) ? gem.y : 0;
+    const radius = Number.isFinite(gem.radius) && gem.radius > 0 ? gem.radius : (CONFIG.xpGem.radius || 1);
+    const value = Number.isFinite(gem.value) && gem.value > 0 ? gem.value : 0;
+    if (value <= 0) return;
+    const dist = Math.hypot((player.x ?? 0) - x, (player.y ?? 0) - y);
+    if (dist <= pickupDistance + radius + (player.radius ?? 0)) {
+      addXp(value);
+      return;
+    }
+    nextGems.push({ x, y, radius, value });
+  });
+
+  gameState.xpGems = nextGems;
 }
 
 function update(dt) {
@@ -463,6 +512,7 @@ function update(dt) {
   updatePlayerMovement(dt);
   updatePlayerAttack(dt);
   updateProjectiles(dt);
+  updateXpGems(dt);
   updateParticles(dt);
   updateEnemies(dt);
 
@@ -554,6 +604,34 @@ function drawParticles() {
   });
 }
 
+function drawXpGems() {
+  const gems = gameState.xpGems || [];
+  const gemColor = CONFIG.xpGem?.color || '#7be8ff';
+  const gemGlowColor = CONFIG.xpGem?.glowColor || 'rgba(123,232,255,0.35)';
+  gems.forEach(gem => {
+    if (!gem) return;
+    const x = Number.isFinite(gem.x) ? gem.x : 0;
+    const y = Number.isFinite(gem.y) ? gem.y : 0;
+    const radius = Number.isFinite(gem.radius) && gem.radius > 0 ? gem.radius : 1;
+    ctx.save();
+    ctx.shadowBlur = radius * 3.2;
+    ctx.shadowColor = gemGlowColor;
+    ctx.fillStyle = gemGlowColor;
+    ctx.beginPath();
+    ctx.arc(x, y, radius * 1.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = gemColor;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#dffbff';
+    ctx.beginPath();
+    ctx.arc(x - radius * 0.25, y - radius * 0.25, radius * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
 function drawHud() {
   const p = gameState.player;
   const hpPct = p.hp / p.maxHp;
@@ -587,6 +665,7 @@ function render() {
   ctx.arc(gameState.player.x, gameState.player.y, gameState.player.attackRange, 0, Math.PI * 2);
   ctx.stroke();
 
+  drawXpGems();
   drawParticles();
   drawProjectiles();
   gameState.enemies.forEach(e => {
