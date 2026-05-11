@@ -29,6 +29,30 @@ const CONFIG = {
     baseXpToLevel: 80,
     xpGrowth: 1.35,
   },
+  assets: {
+    playerImage: 'assets/crayfish.png',
+    enemyImage: 'assets/eel.png',
+  },
+  visuals: {
+    playerShadowColor: 'rgba(0, 0, 0, 0.35)',
+    enemyShadowColor: 'rgba(0, 0, 0, 0.25)',
+    playerRangeColor: 'rgba(123, 232, 255, 0.14)',
+    playerRangeLineWidth: 1.5,
+    entityShadowRadiusScale: 0.85,
+    entityImageScale: 2.4,
+    enemyHpBarWidth: 24,
+    enemyHpBarHeight: 4,
+    enemyHpBarYOffset: 16,
+    enemyHpBarBackColor: 'rgba(0, 0, 0, 0.5)',
+    enemyHpBarFillColor: '#6dff8c',
+    projectileGlowColor: 'rgba(200, 247, 255, 0.85)',
+    projectileCoreColor: '#7be8ff',
+    hitParticleColor: 'rgba(200, 247, 255, 0.9)',
+    hitParticleCount: 8,
+    hitParticleLife: 0.2,
+    hitParticleSpeed: 170,
+    hitParticleRadius: 2.5,
+  },
 };
 
 const gameState = {
@@ -106,8 +130,8 @@ function loadImage(key, src) {
 
 async function preloadImages() {
   const results = await Promise.all([
-    loadImage('player', 'assets/crayfish.png'),
-    loadImage('enemy', 'assets/eel.png'),
+    loadImage('player', CONFIG.assets.playerImage),
+    loadImage('enemy', CONFIG.assets.enemyImage),
   ]);
   results.forEach(r => gameState.images[r.key] = r);
 }
@@ -131,7 +155,30 @@ function spawnEnemy() {
     radius: CONFIG.enemy.baseRadius,
     speed: CONFIG.enemy.baseSpeed * difficulty,
     hp: CONFIG.enemy.baseHp * (1 + gameState.level * 0.04),
+    maxHp: CONFIG.enemy.baseHp * (1 + gameState.level * 0.04),
   });
+}
+
+function spawnHitParticles(x, y) {
+  const count = CONFIG.visuals.hitParticleCount;
+  const life = CONFIG.visuals.hitParticleLife;
+  const speed = CONFIG.visuals.hitParticleSpeed;
+  const radius = CONFIG.visuals.hitParticleRadius;
+  const color = CONFIG.visuals.hitParticleColor;
+  for (let i = 0; i < count; i += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const velocity = rand(speed * 0.5, speed);
+    gameState.particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * velocity,
+      vy: Math.sin(angle) * velocity,
+      radius,
+      life,
+      maxLife: life,
+      color,
+    });
+  }
 }
 
 function chooseMutations() {
@@ -227,11 +274,23 @@ function updateProjectiles(dt) {
     const hitEnemy = gameState.enemies.find(enemy => distance(proj, enemy) <= proj.radius + enemy.radius);
     if (hitEnemy) {
       hitEnemy.hp -= proj.damage;
+      spawnHitParticles(proj.x, proj.y);
       proj._remove = true;
     }
   });
 
   gameState.projectiles = projectiles.filter(proj => !proj._remove);
+}
+
+function updateParticles(dt) {
+  const particles = gameState.particles || [];
+  particles.forEach(particle => {
+    if (!particle) return;
+    particle.x = (particle.x ?? 0) + (particle.vx ?? 0) * dt;
+    particle.y = (particle.y ?? 0) + (particle.vy ?? 0) * dt;
+    particle.life = (particle.life ?? 0) - dt;
+  });
+  gameState.particles = particles.filter(particle => (particle?.life ?? 0) > 0);
 }
 
 function updateEnemies(dt) {
@@ -269,6 +328,7 @@ function update(dt) {
   gameState.runTime += dt;
   updatePlayer(dt);
   updateProjectiles(dt);
+  updateParticles(dt);
   updateEnemies(dt);
 
   gameState.spawnTimer -= dt;
@@ -285,8 +345,9 @@ function update(dt) {
 }
 
 function drawEntityWithFallback(entity, imageResult, fallbackColor) {
+  const imageScale = CONFIG.visuals.entityImageScale;
   if (imageResult?.ok && imageResult.img) {
-    const s = entity.radius * 2.4;
+    const s = entity.radius * imageScale;
     ctx.drawImage(imageResult.img, entity.x - s / 2, entity.y - s / 2, s, s);
   } else {
     ctx.fillStyle = fallbackColor;
@@ -296,15 +357,61 @@ function drawEntityWithFallback(entity, imageResult, fallbackColor) {
   }
 }
 
+function drawEntityShadow(entity, color) {
+  const shadowRadius = entity.radius * CONFIG.visuals.entityShadowRadiusScale;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.ellipse(entity.x, entity.y + shadowRadius * 0.45, shadowRadius, shadowRadius * 0.55, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawEnemyHpBar(enemy) {
+  const w = CONFIG.visuals.enemyHpBarWidth;
+  const h = CONFIG.visuals.enemyHpBarHeight;
+  const yOffset = CONFIG.visuals.enemyHpBarYOffset;
+  const maxHp = enemy.maxHp || enemy.hp || 1;
+  const hpPct = clamp((enemy.hp || 0) / maxHp, 0, 1);
+  const x = enemy.x - w / 2;
+  const y = enemy.y - enemy.radius - yOffset;
+  ctx.fillStyle = CONFIG.visuals.enemyHpBarBackColor;
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = CONFIG.visuals.enemyHpBarFillColor;
+  ctx.fillRect(x, y, w * hpPct, h);
+}
+
 function drawProjectiles() {
   const projectiles = gameState.projectiles || [];
   projectiles.forEach(proj => {
     ctx.save();
-    ctx.shadowBlur = 14;
-    ctx.shadowColor = CONFIG.projectile.hitColor;
-    ctx.fillStyle = CONFIG.projectile.color;
+    ctx.shadowBlur = proj.radius * 3;
+    ctx.shadowColor = CONFIG.visuals.projectileGlowColor;
+    ctx.fillStyle = CONFIG.visuals.projectileGlowColor;
+    ctx.beginPath();
+    ctx.arc(proj.x, proj.y, proj.radius * 1.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = CONFIG.visuals.projectileCoreColor;
     ctx.beginPath();
     ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+}
+
+function drawParticles() {
+  const particles = gameState.particles || [];
+  particles.forEach(particle => {
+    const life = particle?.life ?? 0;
+    const maxLife = particle?.maxLife ?? 1;
+    if (life <= 0 || maxLife <= 0) return;
+    const alpha = clamp(life / maxLife, 0, 1);
+    const radius = particle?.radius ?? 1;
+    const x = particle?.x ?? 0;
+    const y = particle?.y ?? 0;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = particle?.color || CONFIG.visuals.hitParticleColor;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   });
@@ -337,9 +444,21 @@ function render() {
   ctx.fillStyle = '#0d1730';
   ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
 
-  gameState.enemies.forEach(e => drawEntityWithFallback(e, gameState.images.enemy, '#85ff8a'));
+  ctx.strokeStyle = CONFIG.visuals.playerRangeColor;
+  ctx.lineWidth = CONFIG.visuals.playerRangeLineWidth;
+  ctx.beginPath();
+  ctx.arc(gameState.player.x, gameState.player.y, gameState.player.attackRange, 0, Math.PI * 2);
+  ctx.stroke();
+
+  gameState.enemies.forEach(e => {
+    drawEntityShadow(e, CONFIG.visuals.enemyShadowColor);
+    drawEntityWithFallback(e, gameState.images.enemy, '#85ff8a');
+    drawEnemyHpBar(e);
+  });
+  drawEntityShadow(gameState.player, CONFIG.visuals.playerShadowColor);
   drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a');
   drawProjectiles();
+  drawParticles();
   drawHud();
 }
 
