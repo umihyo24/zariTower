@@ -57,6 +57,11 @@ const CONFIG = {
     hitParticleLife: 0.2,
     hitParticleSpeed: 170,
     hitParticleRadius: 2.5,
+    deathParticleColor: 'rgba(255, 150, 120, 0.9)',
+    deathParticleCount: 18,
+    deathParticleLife: 0.38,
+    deathParticleSpeed: 240,
+    deathParticleRadius: 3.2,
   },
 };
 
@@ -182,6 +187,31 @@ function spawnHitParticles(x, y) {
       vy: Math.sin(angle) * velocity,
       radius,
       life,
+      maxLife: life,
+      color,
+    });
+  }
+}
+
+function createDeathEffect(enemy) {
+  if (!enemy) return;
+  const x = Number.isFinite(enemy.x) ? enemy.x : 0;
+  const y = Number.isFinite(enemy.y) ? enemy.y : 0;
+  const count = Math.max(0, Math.floor(CONFIG.visuals.deathParticleCount));
+  const life = Math.max(0.01, CONFIG.visuals.deathParticleLife);
+  const speed = Math.max(0, CONFIG.visuals.deathParticleSpeed);
+  const radius = Math.max(0.1, CONFIG.visuals.deathParticleRadius);
+  const color = CONFIG.visuals.deathParticleColor;
+  for (let i = 0; i < count; i += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const velocity = rand(speed * 0.55, speed * 1.25);
+    gameState.particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * velocity,
+      vy: Math.sin(angle) * velocity,
+      radius: rand(radius * 0.7, radius * 1.3),
+      life: rand(life * 0.7, life * 1.1),
       maxLife: life,
       color,
     });
@@ -322,13 +352,27 @@ function updateProjectiles(dt) {
 
 function updateParticles(dt) {
   const particles = gameState.particles || [];
+  const nextParticles = [];
   particles.forEach(particle => {
     if (!particle) return;
-    particle.x = (particle.x ?? 0) + (particle.vx ?? 0) * dt;
-    particle.y = (particle.y ?? 0) + (particle.vy ?? 0) * dt;
-    particle.life = (particle.life ?? 0) - dt;
+    const x = Number.isFinite(particle.x) ? particle.x : 0;
+    const y = Number.isFinite(particle.y) ? particle.y : 0;
+    const vx = Number.isFinite(particle.vx) ? particle.vx : 0;
+    const vy = Number.isFinite(particle.vy) ? particle.vy : 0;
+    const radius = Number.isFinite(particle.radius) && particle.radius > 0 ? particle.radius : 1;
+    const maxLife = Number.isFinite(particle.maxLife) && particle.maxLife > 0 ? particle.maxLife : 0.01;
+    const life = (Number.isFinite(particle.life) ? particle.life : 0) - dt;
+    if (!Number.isFinite(life) || life <= 0) return;
+    particle.x = x + vx * dt;
+    particle.y = y + vy * dt;
+    particle.vx = vx;
+    particle.vy = vy;
+    particle.radius = radius;
+    particle.maxLife = maxLife;
+    particle.life = life;
+    if (Number.isFinite(particle.x) && Number.isFinite(particle.y)) nextParticles.push(particle);
   });
-  gameState.particles = particles.filter(particle => (particle?.life ?? 0) > 0);
+  gameState.particles = nextParticles;
 }
 
 function updateEnemies(dt) {
@@ -373,13 +417,18 @@ function updateEnemies(dt) {
     gameState.damageTimer = CONFIG.enemy.damageCooldown;
   }
 
-  const before = gameState.enemies.length;
-  gameState.enemies = gameState.enemies.filter(e => e.hp > 0);
-  const killed = before - gameState.enemies.length;
-  if (killed > 0) {
-    addXp(CONFIG.progression.xpPerEnemy * killed);
-    gameState.score += killed;
-  }
+  const aliveEnemies = [];
+  gameState.enemies.forEach(enemy => {
+    if (!enemy) return;
+    if ((enemy.hp ?? 0) <= 0) {
+      createDeathEffect(enemy);
+      addXp(CONFIG.progression.xpPerEnemy);
+      gameState.score += 1;
+      return;
+    }
+    aliveEnemies.push(enemy);
+  });
+  gameState.enemies = aliveEnemies;
 }
 
 function update(dt) {
@@ -459,13 +508,15 @@ function drawProjectiles() {
 function drawParticles() {
   const particles = gameState.particles || [];
   particles.forEach(particle => {
+    if (!particle) return;
     const life = particle?.life ?? 0;
     const maxLife = particle?.maxLife ?? 1;
-    if (life <= 0 || maxLife <= 0) return;
+    if (!Number.isFinite(life) || !Number.isFinite(maxLife) || life <= 0 || maxLife <= 0) return;
     const alpha = clamp(life / maxLife, 0, 1);
-    const radius = particle?.radius ?? 1;
-    const x = particle?.x ?? 0;
-    const y = particle?.y ?? 0;
+    const radius = Number.isFinite(particle?.radius) && particle.radius > 0 ? particle.radius : 1;
+    const x = Number.isFinite(particle?.x) ? particle.x : 0;
+    const y = Number.isFinite(particle?.y) ? particle.y : 0;
+    if (!Number.isFinite(alpha) || alpha <= 0 || !Number.isFinite(radius) || !Number.isFinite(x) || !Number.isFinite(y)) return;
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.fillStyle = particle?.color || CONFIG.visuals.hitParticleColor;
@@ -509,6 +560,8 @@ function render() {
   ctx.arc(gameState.player.x, gameState.player.y, gameState.player.attackRange, 0, Math.PI * 2);
   ctx.stroke();
 
+  drawParticles();
+  drawProjectiles();
   gameState.enemies.forEach(e => {
     drawEntityShadow(e, CONFIG.visuals.enemyShadowColor);
     drawEntityWithFallback(e, gameState.images.enemy, '#85ff8a');
@@ -516,8 +569,6 @@ function render() {
   });
   drawEntityShadow(gameState.player, CONFIG.visuals.playerShadowColor);
   drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a');
-  drawProjectiles();
-  drawParticles();
   drawHud();
 }
 
