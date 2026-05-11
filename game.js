@@ -18,6 +18,13 @@ const CONFIG = {
     touchDamage: 8,
     damageCooldown: 0.7,
     spawnInterval: 0.8,
+    minSpawnInterval: 0.22,
+    maxEnemiesBase: 35,
+    maxEnemiesGrowthPerMinute: 12,
+    maxEnemiesCap: 120,
+    spawnIntervalDecayPerMinute: 0.18,
+    hpGrowthPerMinute: 0.08,
+    speedGrowthPerMinute: 0.04,
   },
   projectile: {
     radius: 6,
@@ -176,6 +183,39 @@ function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function rand(min, max) { return Math.random() * (max - min) + min; }
 function distance(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
+function getDifficultyMinutes() {
+  const seconds = Number.isFinite(gameState?.runTime) ? gameState.runTime : 0;
+  return Math.max(0, seconds / 60);
+}
+
+function getCurrentSpawnInterval() {
+  const minutes = getDifficultyMinutes();
+  const baseInterval = Number.isFinite(CONFIG.enemy?.spawnInterval) ? CONFIG.enemy.spawnInterval : 0.8;
+  const minInterval = Number.isFinite(CONFIG.enemy?.minSpawnInterval) ? CONFIG.enemy.minSpawnInterval : 0.22;
+  const decayPerMinute = Number.isFinite(CONFIG.enemy?.spawnIntervalDecayPerMinute) ? CONFIG.enemy.spawnIntervalDecayPerMinute : 0;
+  return Math.max(minInterval, baseInterval - decayPerMinute * minutes);
+}
+
+function getCurrentMaxEnemies() {
+  const minutes = getDifficultyMinutes();
+  const base = Number.isFinite(CONFIG.enemy?.maxEnemiesBase) ? CONFIG.enemy.maxEnemiesBase : 35;
+  const growth = Number.isFinite(CONFIG.enemy?.maxEnemiesGrowthPerMinute) ? CONFIG.enemy.maxEnemiesGrowthPerMinute : 0;
+  const cap = Number.isFinite(CONFIG.enemy?.maxEnemiesCap) ? CONFIG.enemy.maxEnemiesCap : base;
+  return Math.floor(clamp(base + growth * minutes, base, Math.max(base, cap)));
+}
+
+function getEnemyHpMultiplier() {
+  const minutes = getDifficultyMinutes();
+  const growth = Number.isFinite(CONFIG.enemy?.hpGrowthPerMinute) ? CONFIG.enemy.hpGrowthPerMinute : 0;
+  return Math.max(1, 1 + growth * minutes);
+}
+
+function getEnemySpeedMultiplier() {
+  const minutes = getDifficultyMinutes();
+  const growth = Number.isFinite(CONFIG.enemy?.speedGrowthPerMinute) ? CONFIG.enemy.speedGrowthPerMinute : 0;
+  return Math.max(1, 1 + growth * minutes);
+}
+
 function spawnEnemy() {
   const edge = Math.floor(Math.random() * 4);
   const margin = 30;
@@ -185,13 +225,17 @@ function spawnEnemy() {
   if (edge === 2) { x = rand(0, CONFIG.canvas.width); y = CONFIG.canvas.height + margin; }
   if (edge === 3) { x = -margin; y = rand(0, CONFIG.canvas.height); }
 
-  const difficulty = 1 + gameState.runTime * 0.03;
+  const hpMultiplier = getEnemyHpMultiplier();
+  const speedMultiplier = getEnemySpeedMultiplier();
+  const baseHp = Number.isFinite(CONFIG.enemy.baseHp) ? CONFIG.enemy.baseHp : 1;
+  const hp = baseHp * hpMultiplier;
+
   gameState.enemies.push({
     x, y,
     radius: CONFIG.enemy.baseRadius,
-    speed: CONFIG.enemy.baseSpeed * difficulty,
-    hp: CONFIG.enemy.baseHp * (1 + gameState.level * 0.04),
-    maxHp: CONFIG.enemy.baseHp * (1 + gameState.level * 0.04),
+    speed: (Number.isFinite(CONFIG.enemy.baseSpeed) ? CONFIG.enemy.baseSpeed : 0) * speedMultiplier,
+    hp,
+    maxHp: hp,
     knockbackX: 0,
     knockbackY: 0,
   });
@@ -551,6 +595,7 @@ function update(dt) {
     updatePlayerMovement(dt);
     updateProjectiles(dt);
     updateParticles(dt);
+    gameState.spawnTimer = getCurrentSpawnInterval();
     return;
   }
 
@@ -564,8 +609,12 @@ function update(dt) {
 
   gameState.spawnTimer -= dt;
   if (gameState.spawnTimer <= 0) {
-    spawnEnemy();
-    gameState.spawnTimer = Math.max(0.2, CONFIG.enemy.spawnInterval - gameState.runTime * 0.01);
+    const maxEnemies = getCurrentMaxEnemies();
+    const currentEnemyCount = Array.isArray(gameState.enemies) ? gameState.enemies.length : 0;
+    if (currentEnemyCount < maxEnemies) {
+      spawnEnemy();
+    }
+    gameState.spawnTimer = getCurrentSpawnInterval();
   }
 
   if (gameState.player.hp <= 0) {
@@ -684,12 +733,13 @@ function drawHud() {
   const xpPct = gameState.xp / gameState.xpToNext;
 
   ctx.fillStyle = '#0008';
-  ctx.fillRect(16, 16, 260, 90);
+  ctx.fillRect(16, 16, 260, 108);
   ctx.fillStyle = '#fff';
   ctx.font = '14px sans-serif';
   ctx.fillText(`HP: ${Math.ceil(p.hp)} / ${p.maxHp}`, 26, 36);
   ctx.fillText(`Level: ${gameState.level}`, 26, 54);
   ctx.fillText(`Kills: ${gameState.score}`, 26, 72);
+  ctx.fillText(`Enemies: ${(gameState.enemies || []).length}/${getCurrentMaxEnemies()}`, 26, 90);
 
   ctx.fillStyle = '#2a334f';
   ctx.fillRect(120, 26, 140, 10);
