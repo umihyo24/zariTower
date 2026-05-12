@@ -147,6 +147,29 @@ const CONFIG = {
     darknessDistanceInfluence: 0.42,
     darknessVignetteAlpha: 0.22,
   },
+
+  duel: {
+    arenaWidth: 960,
+    arenaHeight: 540,
+    playerStartX: 160,
+    playerStartY: 270,
+    tododonX: 790,
+    tododonY: 270,
+    tododonRadius: 95,
+    tododonHp: 420,
+    tododonTouchDamage: 20,
+    tododonAttackInterval: 4.2,
+    tododonAttackWindup: 0.8,
+    tododonAirBulletCount: 9,
+    tododonAirBulletHp: 24,
+    tododonAirBulletRadius: 18,
+    tododonAirBulletSpeed: 120,
+    tododonAirBulletDamage: 10,
+    tododonVulnerableDuration: 2.0,
+    tododonVulnerableAfterAirWallCleared: true,
+    tododonArmorDamageMultiplier: 0.15,
+    tododonVulnerableDamageMultiplier: 1.0,
+  },
   assets: {
     playerImage: 'assets/crayfish.png',
     enemyImage: 'assets/tododon.png',
@@ -216,6 +239,7 @@ const gameState = {
   pendingLevelUps: 0,
   pendingEvent: null,
   event: null,
+  duel: null,
   screenDarkness: 0,
   currentMutationOptions: [],
   nextEnemyId: 1,
@@ -261,6 +285,7 @@ const EVENT_DEFINITIONS = {
     choices: [
       { label: 'ミセ　ヤル！', resultText: 'オデ　ヤル！', action: 'unlockTododonShop' },
       { label: 'オデ　トドドン　ユルサナイ！', resultText: 'トドドンは悲しい顔をして去っていった。\nただ、あきらめていないようだ……', action: 'unlockTododonShop' },
+      { label: 'いざ！決戦のバトルフィールドへ！', resultText: 'トドドンが戦闘態勢に入った！', action: 'startBossDuel' },
     ],
   },
 };
@@ -315,6 +340,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
     pendingLevelUps: 0,
     pendingEvent: null,
     event: null,
+    duel: null,
     rangeVisibility: { visible: false, timer: 0 },
     runCoinsEarned: 0, runCompleted: false,
     player: {
@@ -485,7 +511,7 @@ function showTododonEvent() {
 
 function applyEventAction(action) {
   if (action === 'unlockTododonShop') unlockTododonShop();
-  if (action === 'startBossDuel' && gameState?.event) gameState.event.resultText = '決戦ステージはまだ準備中です。';
+  if (action === 'startBossDuel' && gameState?.event) gameState.event.nextFlow = 'duel_prepare';
 }
 
 function resolveEventChoice(choiceIndex) {
@@ -520,6 +546,7 @@ function closeTododonEventToFlow(nextFlow = 'clear') {
   gameState.event = null;
   eventModal?.classList.add('hidden');
   if (!Number.isFinite(gameState?.pendingLevelUps) || gameState.pendingLevelUps <= 0) {
+    if (nextFlow === 'duel_prepare') { startDuelBattle(); return; }
     gameState.phase = nextFlow;
     gameState.isPaused = false;
     return;
@@ -527,6 +554,7 @@ function closeTododonEventToFlow(nextFlow = 'clear') {
   gameState.phase = 'playing';
   gameState.isPaused = false;
   resolvePendingLevelUpsThen(() => {
+    if (nextFlow === 'duel_prepare') { startDuelBattle(); return; }
     gameState.phase = nextFlow;
     gameState.isPaused = false;
   });
@@ -535,6 +563,50 @@ function closeTododonEventToFlow(nextFlow = 'clear') {
 function getActiveEventDefinition() {
   const eventId = gameState?.event?.id;
   return eventId ? EVENT_DEFINITIONS[eventId] || null : null;
+}
+
+
+function startDuelBattle() {
+  const duelConfig = CONFIG.duel || {};
+  const player = gameState?.player;
+  if (!player) return;
+  gameState.phase = 'duel';
+  gameState.isPaused = false;
+  gameState.previousPhaseBeforePause = null;
+  gameState.event = null;
+  gameState.pendingEvent = null;
+  eventModal?.classList.add('hidden');
+  gameState.enemies = [];
+  gameState.projectiles = [];
+  gameState.xpGems = [];
+  gameState.spawnTimer = getCurrentSpawnInterval();
+  player.x = clamp(Number(duelConfig.playerStartX) || 160, player.radius, (duelConfig.arenaWidth || CONFIG.canvas.width) - player.radius);
+  player.y = clamp(Number(duelConfig.playerStartY) || 270, player.radius, (duelConfig.arenaHeight || CONFIG.canvas.height) - player.radius);
+  player.attackTimer = 0;
+  gameState.duel = {
+    tododon: {
+      id: 'duel_tododon',
+      x: Number(duelConfig.tododonX) || 790, y: Number(duelConfig.tododonY) || 270, radius: Number(duelConfig.tododonRadius) || 95,
+      hp: Number(duelConfig.tododonHp) || 420, maxHp: Number(duelConfig.tododonHp) || 420, attackTimer: Number(duelConfig.tododonAttackInterval) || 4.2,
+      windupTimer: 0, state: 'idle', vulnerableTimer: 0,
+    },
+    airBullets: [],
+    currentWaveId: 0,
+    isComplete: false,
+  };
+}
+
+function spawnDuelAirBulletWave() {
+  const duel = gameState?.duel; const tododon = duel?.tododon; const c = CONFIG.duel || {};
+  if (!duel || !tododon) return;
+  duel.currentWaveId += 1;
+  const count = Math.max(1, Math.floor(c.tododonAirBulletCount || 9));
+  const band = tododon.radius * 1.6;
+  for (let i = 0; i < count; i += 1) {
+    if (i % 4 === 2) continue;
+    const t = count <= 1 ? 0.5 : i / (count - 1);
+    duel.airBullets.push({ id: `air_${duel.currentWaveId}_${i}`, waveId: duel.currentWaveId, x: tododon.x - tododon.radius * 0.75, y: tododon.y - band * 0.5 + band * t, vx: -(c.tododonAirBulletSpeed || 120), vy: 0, radius: c.tododonAirBulletRadius || 18, hp: c.tododonAirBulletHp || 24, maxHp: c.tododonAirBulletHp || 24, damage: c.tododonAirBulletDamage || 10, type: 'airBullet' });
+  }
 }
 
 function updateTododon(dt) {
@@ -969,7 +1041,7 @@ function addXp(amount) {
     if (gameState?.phase === 'playing') {
       showLevelUp();
       if (gameState?.phase !== 'playing') break;
-    } else if (gameState?.phase === 'ending' || gameState?.phase === 'event') {
+    } else if (gameState?.phase === 'ending' || gameState?.phase === 'event' || gameState?.phase === 'duel') {
       gameState.pendingLevelUps = (Number.isFinite(gameState?.pendingLevelUps) ? gameState.pendingLevelUps : 0) + 1;
     }
   }
@@ -999,7 +1071,13 @@ function updatePlayerAttack(dt) {
   p.attackTimer -= dt;
   if (p.attackTimer <= 0) {
     const priority = CONFIG.special?.wideTargetingPriority;
-    const nearest = (gameState.enemies || [])
+    const duelTargets = [];
+    if (gameState?.phase === 'duel') {
+      if (gameState?.duel?.tododon) duelTargets.push(gameState.duel.tododon);
+      duelTargets.push(...(gameState?.duel?.airBullets || []));
+    }
+    const attackTargets = [...(gameState.enemies || []), ...duelTargets];
+    const nearest = attackTargets
       .map(e => ({ e, d: distance(e, p) }))
       .filter(v => v.d <= p.attackRange && isInsideAttackCone(v.e))
       .sort((a, b) => {
@@ -1093,8 +1171,12 @@ function updateProjectiles(dt) {
       if (projectileHitIds.has(enemy.id)) return false;
       return distance(proj, enemy) <= proj.radius + enemy.radius;
     });
-    if (hitEnemy) {
-      hitEnemy.hp -= proj.damage;
+    const duel = gameState?.phase === 'duel' ? gameState?.duel : null;
+    const airHit = duel?.airBullets?.find(b => !projectileHitIds.has(b.id) && distance(proj, b) <= proj.radius + b.radius);
+    const hitEnemyOrBullet = hitEnemy || airHit;
+    if (hitEnemyOrBullet) {
+      const hitEnemy = hitEnemyOrBullet;
+      if (!(duel && hitEnemy.id === 'duel_tododon')) hitEnemy.hp -= proj.damage;
 
       const dirFromProjectileX = (hitEnemy.x ?? 0) - (proj.x ?? 0);
       const dirFromProjectileY = (hitEnemy.y ?? 0) - (proj.y ?? 0);
@@ -1116,10 +1198,10 @@ function updateProjectiles(dt) {
         }
       }
 
-      hitEnemy.knockbackX = (hitEnemy.knockbackX ?? 0) + dirX * CONFIG.combat.knockbackForce;
-      hitEnemy.knockbackY = (hitEnemy.knockbackY ?? 0) + dirY * CONFIG.combat.knockbackForce;
+      if (hitEnemy.type !== 'airBullet' && hitEnemy.id !== 'duel_tododon') hitEnemy.knockbackX = (hitEnemy.knockbackX ?? 0) + dirX * CONFIG.combat.knockbackForce;
+      if (hitEnemy.type !== 'airBullet' && hitEnemy.id !== 'duel_tododon') hitEnemy.knockbackY = (hitEnemy.knockbackY ?? 0) + dirY * CONFIG.combat.knockbackForce;
 
-      const knockbackSpeed = Math.hypot(hitEnemy.knockbackX, hitEnemy.knockbackY);
+      const knockbackSpeed = Math.hypot(hitEnemy.knockbackX || 0, hitEnemy.knockbackY || 0);
       if (knockbackSpeed > CONFIG.combat.maxKnockbackSpeed && knockbackSpeed > 0) {
         const scale = CONFIG.combat.maxKnockbackSpeed / knockbackSpeed;
         hitEnemy.knockbackX *= scale;
@@ -1127,6 +1209,10 @@ function updateProjectiles(dt) {
       }
 
       spawnHitParticles(proj.x, proj.y);
+      if (duel && hitEnemy.id === 'duel_tododon') {
+        const mult = (duel?.tododon?.state === 'vulnerable') ? (CONFIG.duel?.tododonVulnerableDamageMultiplier || 1) : (CONFIG.duel?.tododonArmorDamageMultiplier || 0.15);
+        duel.tododon.hp -= proj.damage * mult;
+      }
       projectileHitIds.add(hitEnemy.id);
       proj.pierceLeft = (Number.isFinite(proj.pierceLeft) ? proj.pierceLeft : 0) - 1;
       if (proj.pierceLeft < 0) {
@@ -1465,6 +1551,38 @@ function updateEnding(dt) {
 }
 
 
+
+function updateDuel(dt) {
+  const duel = gameState?.duel; const p = gameState?.player; const c = CONFIG.duel || {};
+  if (!duel || !p) return;
+  updatePlayerMovement(dt);
+  updatePlayerAttack(dt);
+  updateTododonWave(dt);
+  updateProjectiles(dt);
+  updateParticles(dt);
+  p.x = clamp(p.x, p.radius, (c.arenaWidth || CONFIG.canvas.width) - p.radius);
+  p.y = clamp(p.y, p.radius, (c.arenaHeight || CONFIG.canvas.height) - p.radius);
+  const t = duel.tododon;
+  if (!t) return;
+  t.attackTimer -= dt;
+  if (t.vulnerableTimer > 0) { t.vulnerableTimer -= dt; t.state = 'vulnerable'; }
+  else if (t.state === 'vulnerable') t.state = 'idle';
+  if (t.state === 'idle' && t.attackTimer <= 0) { t.state = 'windup'; t.windupTimer = c.tododonAttackWindup || 0.8; }
+  else if (t.state === 'windup') { t.windupTimer -= dt; if (t.windupTimer <= 0) { spawnDuelAirBulletWave(); t.state = 'firing'; t.attackTimer = c.tododonAttackInterval || 4.2; } }
+  duel.airBullets.forEach(b => { b.x += b.vx * dt; b.y += b.vy * dt; if (distance(b,p) <= b.radius + p.radius && gameState.damageTimer <= 0) { p.hp -= (b.damage || 0); gameState.damageTimer = CONFIG.enemy.damageCooldown; } });
+  gameState.damageTimer -= dt;
+  const activeWaveId = duel.currentWaveId;
+  duel.airBullets = duel.airBullets.filter(b => b.hp > 0 && b.x > -80 && b.x < (c.arenaWidth || CONFIG.canvas.width) + 80);
+  if ((c.tododonVulnerableAfterAirWallCleared !== false) && activeWaveId > 0) {
+    const hasWave = duel.airBullets.some(b => b.waveId === activeWaveId);
+    if (!hasWave && t.state === 'firing') { t.vulnerableTimer = c.tododonVulnerableDuration || 2; t.state = 'vulnerable'; }
+    if (!hasWave && t.state === 'firing' && t.vulnerableTimer <= 0) t.state = 'idle';
+  }
+  if (distance(t,p) <= t.radius + p.radius && gameState.damageTimer <= 0) { p.hp -= (c.tododonTouchDamage || 20); gameState.damageTimer = CONFIG.enemy.damageCooldown; }
+  if ((p.hp || 0) <= 0) { showGameOver(); return; }
+  if ((t.hp || 0) <= 0) { duel.isComplete = true; unlockTododonShop(); showClear(); }
+}
+
 function revealRangeVisibility() {
   if (!gameState || !CONFIG?.visuals) return;
   const duration = Number.isFinite(CONFIG.visuals.rangeVisibilityDuration) ? CONFIG.visuals.rangeVisibilityDuration : 3;
@@ -1501,6 +1619,9 @@ function update(dt) {
       else updateEnding(dt);
       break;
     case 'event':
+      break;
+    case 'duel':
+      updateDuel(dt);
       break;
     default:
       break;
@@ -1665,6 +1786,33 @@ function drawXpGems() {
     ctx.fill();
     ctx.restore();
   });
+}
+
+
+function drawDuelArena() {
+  if (gameState.phase !== 'duel') return;
+  ctx.save();
+  ctx.fillStyle = '#14243c';
+  ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+  ctx.strokeStyle = 'rgba(188, 220, 255, 0.35)';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(6, 6, CONFIG.canvas.width - 12, CONFIG.canvas.height - 12);
+  ctx.restore();
+}
+function drawAirBullets() {
+  const airBullets = gameState?.duel?.airBullets || [];
+  airBullets.forEach(b => { ctx.save(); ctx.fillStyle = 'rgba(210,240,255,0.3)'; ctx.strokeStyle = 'rgba(235,250,255,0.85)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(b.x,b.y,b.radius,0,Math.PI*2); ctx.fill(); ctx.stroke(); ctx.restore(); });
+}
+function drawDuelTododon() {
+  if (gameState.phase !== 'duel') return;
+  const t = gameState?.duel?.tododon; if (!t) return;
+  drawEntityShadow(t, 'rgba(0,0,0,0.4)');
+  drawEntityWithFallback(t, gameState.images?.enemy, '#4f6f8e');
+}
+function drawDuelBossHpBar() {
+  const t = gameState?.duel?.tododon; if (!t || gameState.phase !== 'duel') return;
+  const w = 520; const h = 18; const x = (CONFIG.canvas.width - w) / 2; const y = 18; const pct = clamp((t.hp||0)/(t.maxHp||1),0,1);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x,y,w,h); ctx.fillStyle = '#8ed0ff'; ctx.fillRect(x,y,w*pct,h); ctx.strokeStyle='#dff4ff'; ctx.strokeRect(x,y,w,h); ctx.fillStyle='#fff'; ctx.font='bold 16px sans-serif'; ctx.fillText('Tododon', x, y-6);
 }
 
 function drawHud() {
@@ -1959,17 +2107,21 @@ function drawEventUi() {
 
 function render() {
   drawBackground();
+  drawDuelArena();
   if (!gameState.player) return;
   drawRanges();
   drawXpGems();
   drawParticles();
   drawProjectiles();
   drawEnemies();
+  if (gameState.phase === 'duel') drawDuelTododon();
+  if (gameState.phase === 'duel') drawAirBullets();
   drawTododonWave();
   if (gameState.phase === 'ending') drawOverlays();
   if ((gameState.phase === 'ending' || gameState.phase === 'event' || gameState.phase === 'clear') && gameState.tododon) drawTododon();
   drawPlayer();
   drawHud();
+  drawDuelBossHpBar();
   if (gameState.phase !== 'ending') drawOverlays();
   drawEventUi();
 }
@@ -1996,7 +2148,7 @@ window.addEventListener('keydown', e => {
   const isPauseKey = key === 'Escape' || lowerKey === 'p';
   if (isPauseKey) {
     const phase = gameState.phase;
-    if (phase === 'playing' || phase === 'ending') {
+    if (phase === 'playing' || phase === 'ending' || phase === 'duel') {
       e.preventDefault();
       gameState.previousPhaseBeforePause = phase;
       gameState.phase = 'paused';
@@ -2021,7 +2173,7 @@ window.addEventListener('keydown', e => {
     }
     if (gameState?.event?.showingResult && (key === 'Enter' || key === ' ')) {
       e.preventDefault();
-      closeTododonEventToFlow('clear');
+      closeTododonEventToFlow(gameState?.event?.nextFlow || 'clear')
       return;
     }
     return;
@@ -2042,7 +2194,7 @@ window.addEventListener('keydown', e => {
     }
   }
 
-  const canUseCombatHotkeys = gameState.phase === 'playing';
+  const canUseCombatHotkeys = gameState.phase === 'playing' || gameState.phase === 'duel';
   if (lowerKey === 'v' && canUseCombatHotkeys) {
     e.preventDefault();
     toggleWideMode();
@@ -2054,7 +2206,7 @@ window.addEventListener('keydown', e => {
     return;
   }
 
-  const canRevealRanges = gameState.phase === 'playing' || gameState.phase === 'ending';
+  const canRevealRanges = gameState.phase === 'playing' || gameState.phase === 'ending' || gameState.phase === 'duel';
   if (lowerKey === 'r' && canRevealRanges) {
     e.preventDefault();
     revealRangeVisibility();
@@ -2120,7 +2272,7 @@ clearRestartBtn?.addEventListener('click', () => {
 eventModal?.addEventListener('click', e => {
   if (gameState.phase !== 'event') return;
   if (gameState?.event?.showingResult) {
-    closeTododonEventToFlow('clear');
+    closeTododonEventToFlow(gameState?.event?.nextFlow || 'clear')
     return;
   }
   const def = getActiveEventDefinition();
