@@ -64,6 +64,10 @@ const CONFIG = {
     targetSurvivalTime: 300,
     endEventDarknessAlpha: 0.35,
   },
+  debug: {
+    enabled: false,
+    targetSurvivalTimeOverride: 60,
+  },
   tododon: {
     radius: 240,
     speed: 26,
@@ -109,6 +113,7 @@ const gameState = {
   time: 0,
   runTime: 0,
   phase: 'start',
+  previousPhaseBeforePause: null,
   isPaused: false,
   isGameOver: false,
   keys: {},
@@ -161,7 +166,7 @@ const clearRestartBtn = document.getElementById('clearRestartBtn');
 
 function resetState(nextPhase = gameState.phase || 'start') {
   Object.assign(gameState, {
-    time: 0, runTime: 0, phase: nextPhase, isPaused: false, isGameOver: false, keys: {}, enemies: [],
+    time: 0, runTime: 0, phase: nextPhase, previousPhaseBeforePause: null, isPaused: false, isGameOver: false, keys: {}, enemies: [],
     projectiles: [], particles: [], xpGems: [],
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
     level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, tododon: null, screenDarkness: 0, currentMutationOptions: [], nextEnemyId: 1,
@@ -211,6 +216,7 @@ function startEndingEvent() {
 function showClearModal() {
   const survived = Number.isFinite(gameState.runTime) ? gameState.runTime.toFixed(1) : '0.0';
   gameState.phase = 'clear';
+  gameState.previousPhaseBeforePause = null;
   gameState.isPaused = true;
   if (clearStats) {
     clearStats.textContent = `Level ${gameState.level} • Defeated ${gameState.score} enemies • Survived ${survived}s`;
@@ -262,6 +268,23 @@ async function preloadImages() {
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function rand(min, max) { return Math.random() * (max - min) + min; }
 function distance(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+
+function getTargetSurvivalTime() {
+  if (CONFIG.debug?.enabled) {
+    const override = Number.isFinite(CONFIG.debug?.targetSurvivalTimeOverride) ? CONFIG.debug.targetSurvivalTimeOverride : 0;
+    return Math.max(1, override);
+  }
+  const base = Number.isFinite(CONFIG.run?.targetSurvivalTime) ? CONFIG.run.targetSurvivalTime : 300;
+  return Math.max(1, base);
+}
+
+function formatTime(seconds) {
+  const totalSeconds = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+}
 
 function getDifficultyMinutes() {
   const seconds = Number.isFinite(gameState?.runTime) ? gameState.runTime : 0;
@@ -631,7 +654,6 @@ function updateEnemies(dt) {
 }
 
 function updateXpGems(dt) {
-  if (gameState.isPaused) return;
   const gems = gameState.xpGems || [];
   const player = gameState.player || { x: 0, y: 0, radius: 0 };
   const pickupRadius = Number.isFinite(player?.pickupRadius) && player.pickupRadius >= 0
@@ -688,8 +710,8 @@ function updateXpGems(dt) {
 }
 
 function update(dt) {
-  if (gameState.phase === 'start' || gameState.phase === 'levelup' || gameState.phase === 'gameover' || gameState.phase === 'clear') return;
-  if (gameState.isPaused) return;
+  const phase = gameState.phase;
+  if (phase === 'start' || phase === 'paused' || phase === 'levelup' || phase === 'gameover' || phase === 'clear') return;
 
   if (gameState.resumeGraceTimer > 0) {
     gameState.resumeGraceTimer = Math.max(0, gameState.resumeGraceTimer - dt);
@@ -698,7 +720,7 @@ function update(dt) {
     updateProjectiles(dt);
     updateParticles(dt);
     gameState.spawnTimer = getCurrentSpawnInterval();
-    if (gameState.phase === 'ending') {
+    if (phase === 'ending') {
       updateTododonEnding(dt);
     }
     return;
@@ -710,9 +732,12 @@ function update(dt) {
   updateProjectiles(dt);
   updateXpGems(dt);
   updateParticles(dt);
-  updateEnemies(dt);
 
-  const targetTime = Number.isFinite(CONFIG.run?.targetSurvivalTime) ? CONFIG.run.targetSurvivalTime : 300;
+  if (phase === 'playing') {
+    updateEnemies(dt);
+  }
+
+  const targetTime = getTargetSurvivalTime();
   if (gameState.phase === 'playing' && gameState.runTime >= targetTime) {
     startEndingEvent();
   }
@@ -732,7 +757,7 @@ function update(dt) {
     gameState.spawnTimer = getCurrentSpawnInterval();
   }
 
-  if ((gameState.phase === 'playing' || gameState.phase === 'ending') && gameState.player.hp <= 0) {
+  if ((gameState.phase === 'playing' || gameState.phase === 'ending') && (gameState.player?.hp ?? 0) <= 0) {
     gameState.phase = 'gameover';
     finalStats.textContent = `Level ${gameState.level} • Defeated ${gameState.score} enemies • Survived ${gameState.runTime.toFixed(1)}s`;
     gameOverModal.classList.remove('hidden');
@@ -875,13 +900,16 @@ function drawHud() {
   const xpPct = gameState.xp / gameState.xpToNext;
 
   ctx.fillStyle = '#0008';
-  ctx.fillRect(16, 16, 260, 108);
+  ctx.fillRect(16, 16, 290, 132);
   ctx.fillStyle = '#fff';
   ctx.font = '14px sans-serif';
   ctx.fillText(`HP: ${Math.ceil(p.hp)} / ${p.maxHp}`, 26, 36);
   ctx.fillText(`Level: ${gameState.level}`, 26, 54);
   ctx.fillText(`Kills: ${gameState.score}`, 26, 72);
   ctx.fillText(`Enemies: ${(gameState.enemies || []).length}/${getCurrentMaxEnemies()}`, 26, 90);
+  ctx.fillText(`Time: ${formatTime(gameState.runTime)}`, 26, 108);
+  ctx.fillText(`Goal: ${formatTime(getTargetSurvivalTime())}`, 26, 126);
+  if (CONFIG.debug?.enabled) ctx.fillText('DEBUG: 1 min Tododon', 160, 126);
 
   ctx.fillStyle = '#2a334f';
   ctx.fillRect(120, 26, 140, 10);
@@ -890,6 +918,23 @@ function drawHud() {
   ctx.fillRect(120, 26, 140 * hpPct, 10);
   ctx.fillStyle = '#7be8ff';
   ctx.fillRect(120, 44, 140 * xpPct, 10);
+}
+
+
+function drawPauseOverlay() {
+  if (gameState.phase !== 'paused') return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.58)';
+  ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 52px sans-serif';
+  ctx.fillText('PAUSED', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 - 22);
+  ctx.font = '22px sans-serif';
+  ctx.fillText(`Elapsed: ${formatTime(gameState.runTime)}`, CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 + 20);
+  ctx.font = '18px sans-serif';
+  ctx.fillText('Press P or Esc to resume', CONFIG.canvas.width / 2, CONFIG.canvas.height / 2 + 54);
+  ctx.restore();
 }
 
 function render() {
@@ -936,6 +981,7 @@ function render() {
   }
 
   drawHud();
+  drawPauseOverlay();
 }
 
 function loop(ts) {
@@ -947,14 +993,35 @@ function loop(ts) {
 }
 
 window.addEventListener('keydown', e => {
+  const key = e.key;
+  const lowerKey = typeof key === 'string' ? key.toLowerCase() : '';
+  const isPauseKey = key === 'Escape' || lowerKey === 'p';
+  if (isPauseKey) {
+    const phase = gameState.phase;
+    if (phase === 'playing' || phase === 'ending') {
+      e.preventDefault();
+      gameState.previousPhaseBeforePause = phase;
+      gameState.phase = 'paused';
+      gameState.isPaused = true;
+      return;
+    }
+    if (phase === 'paused') {
+      e.preventDefault();
+      gameState.phase = gameState.previousPhaseBeforePause || 'playing';
+      gameState.previousPhaseBeforePause = null;
+      gameState.isPaused = false;
+      return;
+    }
+  }
+
   const isMutationSelectionActive = gameState.phase === 'levelup' && (gameState.currentMutationOptions?.length || 0) > 0;
-  if (isMutationSelectionActive && ['1', '2', '3'].includes(e.key)) {
+  if (isMutationSelectionActive && ['1', '2', '3'].includes(key)) {
     e.preventDefault();
-    selectMutation(Number(e.key) - 1);
+    selectMutation(Number(key) - 1);
     return;
   }
-  if (BLOCK_KEYS.includes(e.key)) e.preventDefault();
-  gameState.keys[e.key] = true;
+  if (BLOCK_KEYS.includes(key)) e.preventDefault();
+  gameState.keys[key] = true;
 });
 window.addEventListener('keyup', e => {
   if (BLOCK_KEYS.includes(e.key)) e.preventDefault();
