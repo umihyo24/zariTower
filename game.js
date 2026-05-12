@@ -143,6 +143,8 @@ const CONFIG = {
     deathParticleLife: 0.38,
     deathParticleSpeed: 240,
     deathParticleRadius: 3.2,
+    rangeVisibilityDuration: 3.0,
+    rangeFadeDuration: 0.6,
   },
 };
 
@@ -181,6 +183,10 @@ const gameState = {
   },
   startUi: {
     debugMenuOpen: false,
+  },
+  rangeVisibility: {
+    visible: false,
+    timer: 0,
   },
   meta: {
     coins: 0,
@@ -265,6 +271,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
     level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, tododon: null, screenDarkness: 0, currentMutationOptions: [], nextEnemyId: 1,
     pendingEvent: null,
     event: null,
+    rangeVisibility: { visible: false, timer: 0 },
     runCoinsEarned: 0, runCompleted: false,
     player: {
       x: CONFIG.canvas.width / 2,
@@ -1189,7 +1196,32 @@ function updateEnding(dt) {
   if ((gameState.player?.hp ?? 0) <= 0) showGameOver();
 }
 
+
+function revealRangeVisibility() {
+  if (!gameState || !CONFIG?.visuals) return;
+  const duration = Number.isFinite(CONFIG.visuals.rangeVisibilityDuration) ? CONFIG.visuals.rangeVisibilityDuration : 3;
+  if (!gameState.rangeVisibility || typeof gameState.rangeVisibility !== 'object') {
+    gameState.rangeVisibility = { visible: false, timer: 0 };
+  }
+  gameState.rangeVisibility.visible = true;
+  gameState.rangeVisibility.timer = Math.max(0, duration);
+}
+
+function updateRangeVisibility(dt) {
+  if (!gameState.rangeVisibility || typeof gameState.rangeVisibility !== 'object') {
+    gameState.rangeVisibility = { visible: false, timer: 0 };
+  }
+  if (!gameState.rangeVisibility.visible) return;
+  const nextTimer = (Number.isFinite(gameState.rangeVisibility.timer) ? gameState.rangeVisibility.timer : 0) - dt;
+  gameState.rangeVisibility.timer = nextTimer;
+  if (nextTimer <= 0) {
+    gameState.rangeVisibility.visible = false;
+    gameState.rangeVisibility.timer = 0;
+  }
+}
+
 function update(dt) {
+  updateRangeVisibility(dt);
   switch (gameState.phase) {
     case 'playing':
       if (gameState.resumeGraceTimer > 0) updateResumeGrace(dt);
@@ -1415,24 +1447,36 @@ function drawBackground() {
   ctx.fillStyle = '#0d1730';
   ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
 }
+function getRangeVisibilityAlpha() {
+  const visibility = gameState?.rangeVisibility;
+  if (!visibility?.visible) return 0;
+  const timer = Number.isFinite(visibility.timer) ? visibility.timer : 0;
+  const fadeDuration = Number.isFinite(CONFIG.visuals?.rangeFadeDuration) ? CONFIG.visuals.rangeFadeDuration : 0.6;
+  if (fadeDuration <= 0) return 1;
+  if (timer >= fadeDuration) return 1;
+  return clamp(timer / fadeDuration, 0, 1);
+}
+
 function drawPickupRadius() {
   const player = gameState?.player;
   if (!player) return;
+  const alpha = getRangeVisibilityAlpha();
+  if (alpha <= 0) return;
   const pickupRadius = Number.isFinite(player.pickupRadius) ? player.pickupRadius : 0;
-  const magnetRadius = Number.isFinite(player.magnetRadius) ? player.magnetRadius : 0;
-  ctx.fillStyle = CONFIG.visuals.pickupRadiusColor;
+  ctx.save();
+  ctx.strokeStyle = `rgba(123, 232, 255, ${0.08 * alpha})`;
+  ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.arc(player.x, player.y, pickupRadius, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = CONFIG.visuals.magnetRadiusColor;
-  ctx.beginPath();
-  ctx.arc(player.x, player.y, magnetRadius, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawAttackCone() {
   const player = gameState?.player;
   if (!player) return;
+  const alpha = getRangeVisibilityAlpha();
+  if (alpha <= 0) return;
   const attackRange = Number.isFinite(player.attackRange) ? player.attackRange : 0;
   const coneDegrees = Number.isFinite(player.attackConeDegrees)
     ? player.attackConeDegrees
@@ -1441,19 +1485,22 @@ function drawAttackCone() {
   const halfCone = degToRad(coneDegrees) / 2;
   const startAngle = forwardAngle - halfCone;
   const endAngle = forwardAngle + halfCone;
-  ctx.fillStyle = CONFIG.visuals.attackConeFillColor;
-  ctx.strokeStyle = CONFIG.visuals.attackConeStrokeColor;
-  ctx.lineWidth = Number.isFinite(CONFIG.visuals.playerRangeLineWidth) ? CONFIG.visuals.playerRangeLineWidth : 1;
+  ctx.save();
+  ctx.fillStyle = `rgba(143, 182, 201, ${0.05 * alpha})`;
+  ctx.strokeStyle = `rgba(143, 182, 201, ${0.22 * alpha})`;
+  ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(player.x, player.y);
   ctx.arc(player.x, player.y, attackRange, startAngle, endAngle);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  ctx.restore();
 }
 
 function drawRanges() {
   if (!gameState?.player) return;
+  if (!gameState?.rangeVisibility?.visible) return;
   drawPickupRadius();
   drawAttackCone();
 }
@@ -1610,6 +1657,14 @@ window.addEventListener('keydown', e => {
     }
     return;
   }
+
+  const canRevealRanges = gameState.phase === 'playing' || gameState.phase === 'ending';
+  if (lowerKey === 'v' && canRevealRanges) {
+    e.preventDefault();
+    revealRangeVisibility();
+    return;
+  }
+
   if (BLOCK_KEYS.includes(key)) e.preventDefault();
   gameState.keys[key] = true;
 });
