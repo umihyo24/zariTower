@@ -90,6 +90,14 @@ const CONFIG = {
     lowEnergyThreshold: 0.25,
     emptyEnergyThreshold: 1,
     wideTargetingPriority: 'nearest',
+    tododonWaveEnergyDrainPerSecond: 32,
+    tododonWaveDamagePerSecond: 18,
+    tododonWaveKnockbackPerSecond: 260,
+    tododonWaveConeDegrees: 95,
+    tododonWaveRange: 220,
+    tododonWaveMinEnergyToActivate: 25,
+    tododonWaveColor: 'rgba(220,245,255,0.18)',
+    tododonWaveEdgeColor: 'rgba(235,255,255,0.35)',
   },
   eventUi: {
     overlayAlpha: 0.2,
@@ -629,16 +637,31 @@ function toggleWideMode() {
   if (energy >= minEnergy) p.activeAttackMode = 'wide';
 }
 
+function toggleTododonWaveMode() {
+  if (gameState?.phase !== 'playing') return;
+  const p = gameState?.player;
+  if (!p) return;
+  if (p.activeAttackMode === 'tododonWave') {
+    p.activeAttackMode = 'normal';
+    return;
+  }
+  const minEnergy = Number.isFinite(CONFIG.special?.tododonWaveMinEnergyToActivate) ? CONFIG.special.tododonWaveMinEnergyToActivate : 0;
+  const energy = Number.isFinite(p.specialEnergy) ? p.specialEnergy : 0;
+  if (energy >= minEnergy) p.activeAttackMode = 'tododonWave';
+}
+
 function updateSpecialEnergy(dt) {
   if (gameState?.phase !== 'playing') return;
   const p = gameState?.player;
   if (!p || !Number.isFinite(dt) || dt <= 0) return;
   const maxEnergy = Number.isFinite(p.maxSpecialEnergy) ? p.maxSpecialEnergy : (Number.isFinite(CONFIG.special?.maxEnergy) ? CONFIG.special.maxEnergy : 100);
   const regen = Number.isFinite(CONFIG.special?.energyRegenPerSecond) ? CONFIG.special.energyRegenPerSecond : 0;
+  const waveDrain = Number.isFinite(CONFIG.special?.tododonWaveEnergyDrainPerSecond) ? CONFIG.special.tododonWaveEnergyDrainPerSecond : 0;
   const current = Number.isFinite(p.specialEnergy) ? p.specialEnergy : 0;
-  p.specialEnergy = clamp(current + regen * dt, 0, maxEnergy);
+  if (p.activeAttackMode === 'tododonWave') p.specialEnergy = clamp(current - waveDrain * dt, 0, maxEnergy);
+  else p.specialEnergy = clamp(current + regen * dt, 0, maxEnergy);
   const emptyThreshold = Number.isFinite(CONFIG.special?.emptyEnergyThreshold) ? CONFIG.special.emptyEnergyThreshold : 0;
-  if (p.activeAttackMode === 'wide' && p.specialEnergy <= emptyThreshold) {
+  if ((p.activeAttackMode === 'wide' || p.activeAttackMode === 'tododonWave') && p.specialEnergy <= emptyThreshold) {
     p.activeAttackMode = 'normal';
   }
 }
@@ -972,6 +995,7 @@ function updatePlayerMovement(dt) {
 
 function updatePlayerAttack(dt) {
   const p = gameState.player;
+  if (p?.activeAttackMode === 'tododonWave') return;
   p.attackTimer -= dt;
   if (p.attackTimer <= 0) {
     const priority = CONFIG.special?.wideTargetingPriority;
@@ -1013,6 +1037,33 @@ function updatePlayerAttack(dt) {
       p.attackTimer = getCurrentAttackCooldown();
     }
   }
+}
+
+function updateTododonWave(dt) {
+  const p = gameState?.player;
+  if (!p || p.activeAttackMode !== 'tododonWave' || !Number.isFinite(dt) || dt <= 0) return;
+  const waveRange = Number.isFinite(CONFIG.special?.tododonWaveRange) ? CONFIG.special.tododonWaveRange : 0;
+  const coneDegrees = Number.isFinite(CONFIG.special?.tododonWaveConeDegrees) ? CONFIG.special.tododonWaveConeDegrees : 0;
+  const damagePerSecond = Number.isFinite(CONFIG.special?.tododonWaveDamagePerSecond) ? CONFIG.special.tododonWaveDamagePerSecond : 0;
+  const knockbackPerSecond = Number.isFinite(CONFIG.special?.tododonWaveKnockbackPerSecond) ? CONFIG.special.tododonWaveKnockbackPerSecond : 0;
+  if (waveRange <= 0 || coneDegrees <= 0) return;
+  const forwardAngle = p.facingX === 1 ? 0 : Math.PI;
+  const halfCone = degToRad(coneDegrees) * 0.5;
+  (gameState.enemies || []).forEach(enemy => {
+    if (!enemy || enemy === gameState?.tododon) return;
+    const dx = (enemy.x ?? 0) - (p.x ?? 0);
+    const dy = (enemy.y ?? 0) - (p.y ?? 0);
+    const dist = Math.hypot(dx, dy);
+    if (!Number.isFinite(dist) || dist <= 0 || dist > waveRange) return;
+    const angle = Math.atan2(dy, dx);
+    const delta = Math.atan2(Math.sin(angle - forwardAngle), Math.cos(angle - forwardAngle));
+    if (Math.abs(delta) > halfCone) return;
+    enemy.hp -= damagePerSecond * dt;
+    const awayX = dx / dist;
+    const awayY = dy / dist;
+    enemy.knockbackVX = (Number.isFinite(enemy.knockbackVX) ? enemy.knockbackVX : 0) + awayX * knockbackPerSecond * dt;
+    enemy.knockbackVY = (Number.isFinite(enemy.knockbackVY) ? enemy.knockbackVY : 0) + awayY * knockbackPerSecond * dt;
+  });
 }
 
 function updateProjectiles(dt) {
@@ -1363,6 +1414,7 @@ function updatePlaying(dt) {
   gameState.runTime += dt;
   updatePlayerMovement(dt);
   updatePlayerAttack(dt);
+  updateTododonWave(dt);
   updateProjectiles(dt);
   updateXpGems(dt);
   updateParticles(dt);
@@ -1386,6 +1438,7 @@ function updateEnding(dt) {
   gameState.runTime += dt;
   updatePlayerMovement(dt);
   updatePlayerAttack(dt);
+  updateTododonWave(dt);
   updateProjectiles(dt);
   updateXpGems(dt);
   updateParticles(dt);
@@ -1632,13 +1685,15 @@ function drawHud() {
   const maxEnergy = Number.isFinite(p.maxSpecialEnergy) ? p.maxSpecialEnergy : 1;
   const energy = Number.isFinite(p.specialEnergy) ? p.specialEnergy : 0;
   const energyPct = maxEnergy > 0 ? clamp(energy / maxEnergy, 0, 1) : 0;
-  const modeLabel = p.activeAttackMode === 'wide' ? 'WIDE' : 'NORMAL';
+  const modeLabel = p.activeAttackMode === 'tododonWave' ? 'TODODON WAVE' : (p.activeAttackMode === 'wide' ? 'WIDE' : 'NORMAL');
   const lowEnergyThreshold = Number.isFinite(CONFIG.special?.lowEnergyThreshold) ? CONFIG.special.lowEnergyThreshold : 0.25;
   const isLowEnergy = energyPct <= lowEnergyThreshold;
   const defaultTextColor = '#fff';
-  ctx.fillStyle = p.activeAttackMode === 'wide'
-    ? (CONFIG.visuals.wideModeColor || '#d2b8ff')
-    : defaultTextColor;
+  ctx.fillStyle = p.activeAttackMode === 'tododonWave'
+    ? '#d4f4ff'
+    : p.activeAttackMode === 'wide'
+      ? (CONFIG.visuals.wideModeColor || '#d2b8ff')
+      : defaultTextColor;
   ctx.fillText(`Mode: ${modeLabel}`, 26, 144);
   ctx.fillStyle = defaultTextColor;
   ctx.fillText(`Energy: ${Math.floor(energy)} / ${Math.floor(maxEnergy)}`, 26, 162);
@@ -1658,8 +1713,8 @@ function drawHud() {
     ? (CONFIG.visuals.energyLowColor || '#ff9f5b')
     : (CONFIG.visuals.energyColor || '#b78cff');
   ctx.fillRect(120, 152, 140 * energyPct, 10);
-  if (p.activeAttackMode === 'wide') {
-    ctx.strokeStyle = CONFIG.visuals.wideModeColor || '#d2b8ff';
+  if (p.activeAttackMode === 'wide' || p.activeAttackMode === 'tododonWave') {
+    ctx.strokeStyle = p.activeAttackMode === 'tododonWave' ? '#bdefff' : (CONFIG.visuals.wideModeColor || '#d2b8ff');
     ctx.lineWidth = 1.5;
     ctx.strokeRect(22, 132, 116, 18);
   }
@@ -1736,11 +1791,65 @@ function drawAttackCone() {
   ctx.restore();
 }
 
+
+function drawTododonWaveRange() {
+  const player = gameState?.player;
+  if (!player || player.activeAttackMode !== 'tododonWave') return;
+  const alpha = getRangeVisibilityAlpha();
+  if (alpha <= 0) return;
+  const waveRange = Number.isFinite(CONFIG.special?.tododonWaveRange) ? CONFIG.special.tododonWaveRange : 0;
+  const coneDegrees = Number.isFinite(CONFIG.special?.tododonWaveConeDegrees) ? CONFIG.special.tododonWaveConeDegrees : 0;
+  const forwardAngle = player.facingX === 1 ? 0 : Math.PI;
+  const halfCone = degToRad(coneDegrees) / 2;
+  ctx.save();
+  ctx.fillStyle = `rgba(220, 245, 255, ${0.045 * alpha})`;
+  ctx.strokeStyle = `rgba(235, 255, 255, ${0.2 * alpha})`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(player.x, player.y);
+  ctx.arc(player.x, player.y, waveRange, forwardAngle - halfCone, forwardAngle + halfCone);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawTododonWave() {
+  const p = gameState?.player;
+  if (!p || p.activeAttackMode !== 'tododonWave') return;
+  const waveRange = Number.isFinite(CONFIG.special?.tododonWaveRange) ? CONFIG.special.tododonWaveRange : 0;
+  const coneDegrees = Number.isFinite(CONFIG.special?.tododonWaveConeDegrees) ? CONFIG.special.tododonWaveConeDegrees : 0;
+  if (waveRange <= 0 || coneDegrees <= 0) return;
+  const forwardAngle = p.facingX === 1 ? 0 : Math.PI;
+  const halfCone = degToRad(coneDegrees) * 0.5;
+  const startAngle = forwardAngle - halfCone;
+  const endAngle = forwardAngle + halfCone;
+  const fillColor = CONFIG.special?.tododonWaveColor || 'rgba(220,245,255,0.18)';
+  const edgeColor = CONFIG.special?.tododonWaveEdgeColor || 'rgba(235,255,255,0.35)';
+  ctx.save();
+  ctx.fillStyle = fillColor;
+  ctx.strokeStyle = edgeColor;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y);
+  ctx.arc(p.x, p.y, waveRange, startAngle, endAngle);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  [0.38, 0.62, 0.86].forEach(ratio => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, waveRange * ratio, startAngle, endAngle);
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
 function drawRanges() {
   if (!gameState?.player) return;
   if (!gameState?.rangeVisibility?.visible) return;
   drawPickupRadius();
   drawAttackCone();
+  drawTododonWaveRange();
 }
 function drawEnemies() {
   const enemyTypes = CONFIG.enemy?.types || {};
@@ -1856,6 +1965,7 @@ function render() {
   drawParticles();
   drawProjectiles();
   drawEnemies();
+  drawTododonWave();
   if (gameState.phase === 'ending') drawOverlays();
   if ((gameState.phase === 'ending' || gameState.phase === 'event' || gameState.phase === 'clear') && gameState.tododon) drawTododon();
   drawPlayer();
@@ -1936,6 +2046,11 @@ window.addEventListener('keydown', e => {
   if (lowerKey === 'v' && canUseCombatHotkeys) {
     e.preventDefault();
     toggleWideMode();
+    return;
+  }
+  if (lowerKey === 'b' && canUseCombatHotkeys) {
+    e.preventDefault();
+    toggleTododonWaveMode();
     return;
   }
 
