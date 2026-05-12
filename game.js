@@ -161,6 +161,7 @@ function resetState() {
       projectilePierce: CONFIG.player.projectilePierce,
       attackTimer: 0,
       reflectPct: 0,
+      facingX: -1,
     },
   });
   levelupModal.classList.add('hidden');
@@ -244,6 +245,7 @@ function spawnEnemy() {
     maxHp: hp,
     knockbackX: 0,
     knockbackY: 0,
+    facingX: -1,
   });
 }
 
@@ -355,6 +357,9 @@ function updatePlayerMovement(dt) {
   const p = gameState.player;
   const xMove = (gameState.keys.ArrowRight || gameState.keys.d ? 1 : 0) - (gameState.keys.ArrowLeft || gameState.keys.a ? 1 : 0);
   const yMove = (gameState.keys.ArrowDown || gameState.keys.s ? 1 : 0) - (gameState.keys.ArrowUp || gameState.keys.w ? 1 : 0);
+  if (xMove < 0) p.facingX = -1;
+  else if (xMove > 0) p.facingX = 1;
+
   const mag = Math.hypot(xMove, yMove) || 1;
   p.x += (xMove / mag) * p.speed * dt;
   p.y += (yMove / mag) * p.speed * dt;
@@ -498,7 +503,10 @@ function updateEnemies(dt) {
     const dx = (p.x ?? 0) - (enemy.x ?? 0);
     const dy = (p.y ?? 0) - (enemy.y ?? 0);
     const d = Math.hypot(dx, dy) || 1;
-    enemy.x = (enemy.x ?? 0) + (dx / d) * (enemy.speed ?? 0) * dt;
+    const moveX = dx / d;
+    if (moveX < -0.001) enemy.facingX = -1;
+    else if (moveX > 0.001) enemy.facingX = 1;
+    enemy.x = (enemy.x ?? 0) + moveX * (enemy.speed ?? 0) * dt;
     enemy.y = (enemy.y ?? 0) + (dy / d) * (enemy.speed ?? 0) * dt;
 
     enemy.knockbackX = enemy.knockbackX ?? 0;
@@ -644,9 +652,20 @@ function update(dt) {
 
 function drawEntityWithFallback(entity, imageResult, fallbackColor) {
   const imageScale = CONFIG.visuals.entityImageScale;
+  const facingX = entity?.facingX === 1 ? 1 : -1;
   if (imageResult?.ok && imageResult.img) {
     const s = entity.radius * imageScale;
-    ctx.drawImage(imageResult.img, entity.x - s / 2, entity.y - s / 2, s, s);
+    const x = entity.x - s / 2;
+    const y = entity.y - s / 2;
+    ctx.save();
+    if (facingX === 1) {
+      ctx.translate(x + s / 2, y + s / 2);
+      ctx.scale(-1, 1);
+      ctx.drawImage(imageResult.img, -s / 2, -s / 2, s, s);
+    } else {
+      ctx.drawImage(imageResult.img, x, y, s, s);
+    }
+    ctx.restore();
   } else {
     ctx.fillStyle = fallbackColor;
     ctx.beginPath();
