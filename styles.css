@@ -52,6 +52,21 @@ canvas {
   background: #0009;
   z-index: 10;
 }
+.event-overlay {
+  background: transparent;
+  place-items: stretch;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 .hidden { display: none; }
 

@@ -61,16 +61,13 @@
         </div>
       </div>
 
-      <div id="eventModal" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="eventTitle">
-        <div class="panel">
-          <h2 id="eventTitle">Tododon Event</h2>
-          <p id="eventBodyText"></p>
-          <div id="eventChoiceButtons">
-            <button id="eventChoice1Btn" type="button">1. ミセ　ヤル！</button>
-            <button id="eventChoice2Btn" type="button">2. オデ　トドドン　ユルサナイ！</button>
-          </div>
-          <button id="eventContinueBtn" type="button" class="hidden">Continue</button>
-        </div>
+      <div id="eventModal" class="overlay event-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="eventTitle">
+        <h2 id="eventTitle" class="sr-only">Tododon Event</h2>
+        <p id="eventBodyText" class="sr-only"></p>
+        <div id="eventChoiceButtons" class="hidden"></div>
+        <button id="eventChoice1Btn" type="button" class="hidden">1</button>
+        <button id="eventChoice2Btn" type="button" class="hidden">2</button>
+        <button id="eventContinueBtn" type="button" class="hidden">Continue</button>
       </div>
 
       <div id="tododonShopModal" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="tododonShopTitle">
