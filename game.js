@@ -17,6 +17,10 @@ const CONFIG = {
     castOffsetY: -6,
   },
   enemy: {
+    types: {
+      basic: 'basic',
+      drifter: 'drifter',
+    },
     baseRadius: 14,
     baseSpeed: 70,
     baseHp: 28,
@@ -33,6 +37,11 @@ const CONFIG = {
     separationRadius: 30,
     separationStrength: 0.45,
     maxSeparationPush: 45,
+    drifterSpeedMultiplier: 0.96,
+    drifterDriftStrength: 0.26,
+    drifterDirectionJitterInterval: 1.8,
+    drifterUnlockTime: 45,
+    drifterSpawnChance: 0.22,
   },
   projectile: {
     radius: 5,
@@ -129,6 +138,7 @@ const CONFIG = {
   assets: {
     playerImage: 'assets/crayfish.png',
     enemyImage: 'assets/tododon.png',
+    drifterImage: 'assets/botancho.png',
   },
   visuals: {
     playerShadowColor: 'rgba(0, 0, 0, 0.35)',
@@ -521,6 +531,7 @@ async function preloadImages() {
   const results = await Promise.all([
     loadImage('player', CONFIG.assets.playerImage),
     loadImage('enemy', CONFIG.assets.enemyImage),
+    loadImage('drifter', CONFIG.assets.drifterImage),
   ]);
   results.forEach(r => gameState.images[r.key] = r);
 }
@@ -728,17 +739,29 @@ function spawnEnemy() {
   const speedMultiplier = getEnemySpeedMultiplier();
   const baseHp = Number.isFinite(CONFIG.enemy.baseHp) ? CONFIG.enemy.baseHp : 1;
   const hp = baseHp * hpMultiplier;
+  const enemyTypes = CONFIG.enemy?.types || {};
+  const basicType = enemyTypes.basic || 'basic';
+  const drifterType = enemyTypes.drifter || 'drifter';
+  const drifterUnlockTime = Number.isFinite(CONFIG.enemy?.drifterUnlockTime) ? CONFIG.enemy.drifterUnlockTime : 45;
+  const drifterSpawnChance = Number.isFinite(CONFIG.enemy?.drifterSpawnChance) ? CONFIG.enemy.drifterSpawnChance : 0;
+  const canSpawnDrifter = gameState.runTime >= drifterUnlockTime && Math.random() < clamp(drifterSpawnChance, 0, 1);
+  const type = canSpawnDrifter ? drifterType : basicType;
+  const drifterSpeedMultiplier = Number.isFinite(CONFIG.enemy?.drifterSpeedMultiplier) ? CONFIG.enemy.drifterSpeedMultiplier : 1;
+  const speedScale = type === drifterType ? drifterSpeedMultiplier : 1;
 
   gameState.enemies.push({
     id: gameState.nextEnemyId++,
+    type,
     x, y,
     radius: CONFIG.enemy.baseRadius,
-    speed: (Number.isFinite(CONFIG.enemy.baseSpeed) ? CONFIG.enemy.baseSpeed : 0) * speedMultiplier,
+    speed: (Number.isFinite(CONFIG.enemy.baseSpeed) ? CONFIG.enemy.baseSpeed : 0) * speedMultiplier * speedScale,
     hp,
     maxHp: hp,
     knockbackX: 0,
     knockbackY: 0,
     facingX: -1,
+    driftDirection: Math.random() < 0.5 ? -1 : 1,
+    driftTimer: rand(0.2, Number.isFinite(CONFIG.enemy?.drifterDirectionJitterInterval) ? CONFIG.enemy.drifterDirectionJitterInterval : 1.8),
   });
 }
 
@@ -1112,11 +1135,36 @@ function updateEnemies(dt) {
       dy = enemyY - centerY;
     }
     const d = Math.hypot(dx, dy) || 1;
-    const moveX = dx / d;
-    if (moveX < -0.001) enemy.facingX = -1;
-    else if (moveX > 0.001) enemy.facingX = 1;
-    enemy.x = (enemy.x ?? 0) + moveX * (enemy.speed ?? 0) * dt;
-    enemy.y = (enemy.y ?? 0) + (dy / d) * (enemy.speed ?? 0) * dt;
+    const forwardX = dx / d;
+    const forwardY = dy / d;
+    const enemyTypes = CONFIG.enemy?.types || {};
+    const drifterType = enemyTypes.drifter || 'drifter';
+    const isDrifter = enemy.type === drifterType;
+    let moveDirX = forwardX;
+    let moveDirY = forwardY;
+
+    if (!isEnding && isDrifter) {
+      const jitterInterval = Number.isFinite(CONFIG.enemy?.drifterDirectionJitterInterval) ? CONFIG.enemy.drifterDirectionJitterInterval : 1.8;
+      enemy.driftTimer = (Number.isFinite(enemy.driftTimer) ? enemy.driftTimer : jitterInterval) - dt;
+      if (enemy.driftTimer <= 0) {
+        enemy.driftDirection = enemy.driftDirection === -1 ? 1 : -1;
+        enemy.driftTimer = jitterInterval;
+      }
+      const driftDirection = enemy.driftDirection === -1 ? -1 : 1;
+      const driftStrength = Number.isFinite(CONFIG.enemy?.drifterDriftStrength) ? CONFIG.enemy.drifterDriftStrength : 0;
+      const perpX = -forwardY * driftDirection;
+      const perpY = forwardX * driftDirection;
+      moveDirX = forwardX + perpX * driftStrength;
+      moveDirY = forwardY + perpY * driftStrength;
+      const moveLen = Math.hypot(moveDirX, moveDirY) || 1;
+      moveDirX /= moveLen;
+      moveDirY /= moveLen;
+    }
+
+    if (moveDirX < -0.001) enemy.facingX = -1;
+    else if (moveDirX > 0.001) enemy.facingX = 1;
+    enemy.x = (enemy.x ?? 0) + moveDirX * (enemy.speed ?? 0) * dt;
+    enemy.y = (enemy.y ?? 0) + moveDirY * (enemy.speed ?? 0) * dt;
 
     enemy.knockbackX = enemy.knockbackX ?? 0;
     enemy.knockbackY = enemy.knockbackY ?? 0;
@@ -1622,7 +1670,25 @@ function drawRanges() {
   drawPickupRadius();
   drawAttackCone();
 }
-function drawEnemies() { (gameState.enemies || []).forEach(e => { drawEntityShadow(e, CONFIG.visuals.enemyShadowColor); drawEntityWithFallback(e, gameState.images.enemy, '#85ff8a'); drawEnemyHpBar(e); }); }
+function drawEnemies() {
+  const enemyTypes = CONFIG.enemy?.types || {};
+  const drifterType = enemyTypes.drifter || 'drifter';
+  (gameState.enemies || []).forEach(e => {
+    drawEntityShadow(e, CONFIG.visuals.enemyShadowColor);
+    const isDrifter = e?.type === drifterType;
+    drawEntityWithFallback(e, isDrifter ? gameState.images.drifter : gameState.images.enemy, isDrifter ? '#96c9ff' : '#85ff8a');
+    if (isDrifter) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(150, 201, 255, 0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(e.x ?? 0, e.y ?? 0, (e.radius ?? 0) + 3, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    drawEnemyHpBar(e);
+  });
+}
 function drawPlayer() { if (!gameState.player) return; drawEntityShadow(gameState.player, CONFIG.visuals.playerShadowColor); drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a'); if (gameState.player.activeAttackMode === 'wide') { ctx.save(); ctx.strokeStyle = 'rgba(183, 140, 255, 0.7)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(gameState.player.x, gameState.player.y, gameState.player.radius + 4, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); } }
 function drawOverlays() {
   if (gameState.screenDarkness > 0) { ctx.fillStyle = `rgba(0, 0, 0, ${clamp(gameState.screenDarkness, 0, 1)})`; ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height); }
