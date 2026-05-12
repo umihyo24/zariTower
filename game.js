@@ -60,6 +60,18 @@ const CONFIG = {
   levelUp: {
     resumeGraceDuration: 0.65,
   },
+  run: {
+    targetSurvivalTime: 300,
+    endEventDarknessAlpha: 0.35,
+  },
+  tododon: {
+    radius: 240,
+    speed: 26,
+    touchRadius: 210,
+    color: '#3f5870',
+    spawnOffset: 320,
+    screenDarkenSpeed: 0.12,
+  },
   assets: {
     playerImage: 'assets/crayfish.png',
     enemyImage: 'assets/tododon.png',
@@ -96,6 +108,7 @@ const CONFIG = {
 const gameState = {
   time: 0,
   runTime: 0,
+  phase: 'playing',
   isPaused: false,
   isGameOver: false,
   keys: {},
@@ -113,6 +126,8 @@ const gameState = {
   score: 0,
   chosenMutations: [],
   resumeGraceTimer: 0,
+  tododon: null,
+  screenDarkness: 0,
   currentMutationOptions: [],
   nextEnemyId: 1,
 };
@@ -138,13 +153,16 @@ const mutationOptions = document.getElementById('mutationOptions');
 const gameOverModal = document.getElementById('gameOverModal');
 const finalStats = document.getElementById('finalStats');
 const restartBtn = document.getElementById('restartBtn');
+const clearModal = document.getElementById('clearModal');
+const clearStats = document.getElementById('clearStats');
+const clearRestartBtn = document.getElementById('clearRestartBtn');
 
 function resetState() {
   Object.assign(gameState, {
-    time: 0, runTime: 0, isPaused: false, isGameOver: false, keys: {}, enemies: [],
+    time: 0, runTime: 0, phase: 'playing', isPaused: false, isGameOver: false, keys: {}, enemies: [],
     projectiles: [], particles: [], xpGems: [],
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
-    level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, currentMutationOptions: [], nextEnemyId: 1,
+    level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, tododon: null, screenDarkness: 0, currentMutationOptions: [], nextEnemyId: 1,
     player: {
       x: CONFIG.canvas.width / 2,
       y: CONFIG.canvas.height / 2,
@@ -166,6 +184,55 @@ function resetState() {
   });
   levelupModal.classList.add('hidden');
   gameOverModal.classList.add('hidden');
+  clearModal?.classList.add('hidden');
+}
+
+function startEndingEvent() {
+  const offset = Number.isFinite(CONFIG.tododon?.spawnOffset) ? CONFIG.tododon.spawnOffset : 320;
+  const radius = Number.isFinite(CONFIG.tododon?.radius) ? CONFIG.tododon.radius : 240;
+  const speed = Number.isFinite(CONFIG.tododon?.speed) ? CONFIG.tododon.speed : 26;
+  gameState.phase = 'ending';
+  gameState.tododon = {
+    x: CONFIG.canvas.width + offset,
+    y: CONFIG.canvas.height + offset * 0.25,
+    radius,
+    speed,
+    facingX: -1,
+  };
+}
+
+function showClearModal() {
+  const survived = Number.isFinite(gameState.runTime) ? gameState.runTime.toFixed(1) : '0.0';
+  gameState.phase = 'clear';
+  gameState.isPaused = true;
+  if (clearStats) {
+    clearStats.textContent = `Level ${gameState.level} • Defeated ${gameState.score} enemies • Survived ${survived}s`;
+  }
+  clearModal?.classList.remove('hidden');
+}
+
+function updateTododonEnding(dt) {
+  const tododon = gameState.tododon;
+  const player = gameState.player;
+  if (!tododon || !player) return;
+  const dx = (player.x ?? 0) - (tododon.x ?? 0);
+  const dy = (player.y ?? 0) - (tododon.y ?? 0);
+  const dist = Math.hypot(dx, dy) || 1;
+  const dirX = dx / dist;
+  const dirY = dy / dist;
+  if (dirX < -0.001) tododon.facingX = -1;
+  else if (dirX > 0.001) tododon.facingX = 1;
+  tododon.x += dirX * tododon.speed * dt;
+  tododon.y += dirY * tododon.speed * dt;
+
+  const darkenSpeed = Number.isFinite(CONFIG.tododon?.screenDarkenSpeed) ? CONFIG.tododon.screenDarkenSpeed : 0;
+  const darknessCap = Number.isFinite(CONFIG.run?.endEventDarknessAlpha) ? CONFIG.run.endEventDarknessAlpha : 0.35;
+  gameState.screenDarkness = clamp(gameState.screenDarkness + darkenSpeed * dt, 0, darknessCap);
+
+  const touchRadius = Number.isFinite(CONFIG.tododon?.touchRadius) ? CONFIG.tododon.touchRadius : tododon.radius;
+  if (dist <= touchRadius + (player.radius ?? 0)) {
+    showClearModal();
+  }
 }
 
 function loadImage(key, src) {
@@ -319,6 +386,7 @@ function chooseMutations() {
 }
 
 function showLevelUp() {
+  gameState.phase = 'levelup';
   gameState.isPaused = true;
   gameState.currentMutationOptions = chooseMutations();
   mutationOptions.innerHTML = '';
@@ -340,6 +408,7 @@ function selectMutation(index) {
   levelupModal.classList.add('hidden');
   gameState.currentMutationOptions = [];
   gameState.isPaused = false;
+  gameState.phase = 'playing';
   gameState.resumeGraceTimer = CONFIG.levelUp.resumeGraceDuration;
 }
 
@@ -613,6 +682,7 @@ function updateXpGems(dt) {
 
 function update(dt) {
   if (gameState.isGameOver) return;
+  if (gameState.phase === 'clear' || gameState.phase === 'gameover') return;
   if (gameState.isPaused) return;
 
   if (gameState.resumeGraceTimer > 0) {
@@ -622,6 +692,9 @@ function update(dt) {
     updateProjectiles(dt);
     updateParticles(dt);
     gameState.spawnTimer = getCurrentSpawnInterval();
+    if (gameState.phase === 'ending') {
+      updateTododonEnding(dt);
+    }
     return;
   }
 
@@ -633,8 +706,18 @@ function update(dt) {
   updateParticles(dt);
   updateEnemies(dt);
 
+  const targetTime = Number.isFinite(CONFIG.run?.targetSurvivalTime) ? CONFIG.run.targetSurvivalTime : 300;
+  if (gameState.phase === 'playing' && gameState.runTime >= targetTime) {
+    startEndingEvent();
+  }
+
+  if (gameState.phase === 'ending') {
+    updateTododonEnding(dt);
+  }
+
+  const canSpawnEnemies = gameState.phase === 'playing';
   gameState.spawnTimer -= dt;
-  if (gameState.spawnTimer <= 0) {
+  if (canSpawnEnemies && gameState.spawnTimer <= 0) {
     const maxEnemies = getCurrentMaxEnemies();
     const currentEnemyCount = Array.isArray(gameState.enemies) ? gameState.enemies.length : 0;
     if (currentEnemyCount < maxEnemies) {
@@ -645,9 +728,24 @@ function update(dt) {
 
   if (gameState.player.hp <= 0) {
     gameState.isGameOver = true;
+    gameState.phase = 'gameover';
     finalStats.textContent = `Level ${gameState.level} • Defeated ${gameState.score} enemies • Survived ${gameState.runTime.toFixed(1)}s`;
     gameOverModal.classList.remove('hidden');
   }
+}
+
+function drawTododon() {
+  const tododon = gameState.tododon;
+  if (!tododon) return;
+  ctx.save();
+  ctx.globalAlpha = 0.92;
+  drawEntityShadow(tododon, 'rgba(0, 0, 0, 0.45)');
+  drawEntityWithFallback(tododon, gameState.images.enemy, CONFIG.tododon.color);
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.beginPath();
+  ctx.arc(tododon.x - tododon.radius * 0.18, tododon.y - tododon.radius * 0.22, tododon.radius * 0.36, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawEntityWithFallback(entity, imageResult, fallbackColor) {
@@ -818,8 +916,17 @@ function render() {
     drawEntityWithFallback(e, gameState.images.enemy, '#85ff8a');
     drawEnemyHpBar(e);
   });
+  if ((gameState.phase === 'ending' || gameState.phase === 'clear') && gameState.tododon) {
+    drawTododon();
+  }
   drawEntityShadow(gameState.player, CONFIG.visuals.playerShadowColor);
   drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a');
+
+  if (gameState.screenDarkness > 0) {
+    ctx.fillStyle = `rgba(0, 0, 0, ${clamp(gameState.screenDarkness, 0, 1)})`;
+    ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+  }
+
   drawHud();
 }
 
@@ -846,6 +953,7 @@ window.addEventListener('keyup', e => {
   gameState.keys[e.key] = false;
 });
 restartBtn.addEventListener('click', () => resetState());
+clearRestartBtn?.addEventListener('click', () => resetState());
 
 (async function init() {
   resetState();
