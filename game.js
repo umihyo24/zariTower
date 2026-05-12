@@ -74,11 +74,11 @@ const CONFIG = {
     ],
   },
   tododon: {
-    radius: 240,
-    speed: 26,
-    touchRadius: 210,
+    radius: 420,
+    speed: 30,
+    touchRadius: 380,
     color: '#3f5870',
-    spawnOffset: 320,
+    spawnOffset: 520,
     screenDarkenSpeed: 0.12,
   },
   assets: {
@@ -245,8 +245,8 @@ function startEndingEvent() {
   const speed = Number.isFinite(CONFIG.tododon?.speed) ? CONFIG.tododon.speed : 26;
   gameState.phase = 'ending';
   gameState.tododon = {
-    x: CONFIG.canvas.width + offset,
-    y: CONFIG.canvas.height + offset * 0.25,
+    x: CONFIG.canvas.width + radius * 0.65 + offset * 0.3,
+    y: CONFIG.canvas.height + radius * 0.38 + offset * 0.18,
     radius,
     speed,
     facingX: -1,
@@ -715,11 +715,20 @@ function updateParticles(dt) {
 
 function updateEnemies(dt) {
   const p = gameState.player;
+  const isEnding = gameState.phase === 'ending';
+  const centerX = CONFIG.canvas.width / 2;
+  const centerY = CONFIG.canvas.height / 2;
   gameState.enemies.forEach(enemy => {
     if (!enemy) return;
 
-    const dx = (p.x ?? 0) - (enemy.x ?? 0);
-    const dy = (p.y ?? 0) - (enemy.y ?? 0);
+    const enemyX = enemy.x ?? 0;
+    const enemyY = enemy.y ?? 0;
+    let dx = (p.x ?? 0) - enemyX;
+    let dy = (p.y ?? 0) - enemyY;
+    if (isEnding) {
+      dx = enemyX - centerX;
+      dy = enemyY - centerY;
+    }
     const d = Math.hypot(dx, dy) || 1;
     const moveX = dx / d;
     if (moveX < -0.001) enemy.facingX = -1;
@@ -748,7 +757,7 @@ function updateEnemies(dt) {
   });
 
   gameState.damageTimer -= dt;
-  if (gameState.damageTimer <= 0) {
+  if (!isEnding && gameState.damageTimer <= 0) {
     gameState.enemies.forEach(enemy => {
       if (distance(enemy, p) < enemy.radius + p.radius) {
         p.hp -= CONFIG.enemy.touchDamage;
@@ -761,6 +770,17 @@ function updateEnemies(dt) {
   const aliveEnemies = [];
   gameState.enemies.forEach(enemy => {
     if (!enemy) return;
+    if (isEnding) {
+      const margin = (Number.isFinite(enemy.radius) ? enemy.radius : 0) + 40;
+      if (
+        (enemy.x ?? 0) < -margin
+        || (enemy.x ?? 0) > CONFIG.canvas.width + margin
+        || (enemy.y ?? 0) < -margin
+        || (enemy.y ?? 0) > CONFIG.canvas.height + margin
+      ) {
+        return;
+      }
+    }
     if ((enemy.hp ?? 0) <= 0) {
       createDeathEffect(enemy);
       spawnXpGem(enemy.x, enemy.y, CONFIG.xpGem.value);
@@ -865,7 +885,25 @@ function updateEnding(dt) {
   updateProjectiles(dt);
   updateXpGems(dt);
   updateParticles(dt);
+  updateEnemies(dt);
   updateTododon(dt);
+  gameState.spawnTimer = getCurrentSpawnInterval();
+  gameState.projectiles = (gameState.projectiles || []).filter(proj => {
+    if (!proj) return false;
+    const margin = 140;
+    const x = proj.x ?? 0;
+    const y = proj.y ?? 0;
+    if (x < -margin || x > CONFIG.canvas.width + margin || y < -margin || y > CONFIG.canvas.height + margin) return false;
+    return true;
+  });
+  gameState.xpGems = (gameState.xpGems || []).filter(gem => {
+    if (!gem) return false;
+    const margin = 220;
+    const x = gem.x ?? 0;
+    const y = gem.y ?? 0;
+    if (x < -margin || x > CONFIG.canvas.width + margin || y < -margin || y > CONFIG.canvas.height + margin) return false;
+    return true;
+  });
   if ((gameState.player?.hp ?? 0) <= 0) showGameOver();
 }
 
@@ -891,10 +929,26 @@ function update(dt) {
 function drawTododon() {
   const tododon = gameState.tododon;
   if (!tododon) return;
+  const imageResult = gameState.images?.enemy;
   ctx.save();
-  ctx.globalAlpha = 0.92;
+  ctx.globalAlpha = 0.96;
   drawEntityShadow(tododon, 'rgba(0, 0, 0, 0.45)');
-  drawEntityWithFallback(tododon, gameState.images.enemy, CONFIG.tododon.color);
+  drawEntityWithFallback(tododon, imageResult, CONFIG.tododon.color);
+  if (!imageResult?.ok || !imageResult?.img) {
+    ctx.globalAlpha = 0.88;
+    ctx.fillStyle = 'rgba(18, 28, 38, 0.82)';
+    ctx.beginPath();
+    ctx.arc(tododon.x + tododon.radius * 0.12, tododon.y + tododon.radius * 0.05, tododon.radius * 0.88, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(64, 84, 104, 0.45)';
+    ctx.beginPath();
+    ctx.arc(tododon.x - tododon.radius * 0.3, tododon.y - tododon.radius * 0.18, tododon.radius * 0.58, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(10, 16, 26, 0.55)';
+    ctx.beginPath();
+    ctx.arc(tododon.x + tododon.radius * 0.32, tododon.y - tododon.radius * 0.28, tododon.radius * 0.46, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.fillStyle = 'rgba(255,255,255,0.06)';
   ctx.beginPath();
   ctx.arc(tododon.x - tododon.radius * 0.18, tododon.y - tododon.radius * 0.22, tododon.radius * 0.36, 0, Math.PI * 2);
@@ -1102,6 +1156,12 @@ function render() {
   drawParticles();
   drawProjectiles();
   drawEnemies();
+  if (gameState.phase === 'ending' && gameState.tododon) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+    ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+    ctx.restore();
+  }
   if ((gameState.phase === 'ending' || gameState.phase === 'clear') && gameState.tododon) drawTododon();
   drawPlayer();
   drawHud();
