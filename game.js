@@ -99,6 +99,8 @@ const CONFIG = {
     playerShadowColor: 'rgba(0, 0, 0, 0.35)',
     enemyShadowColor: 'rgba(0, 0, 0, 0.25)',
     playerRangeColor: 'rgba(123, 232, 255, 0.14)',
+    attackConeFillColor: 'rgba(143,182,201,0.10)',
+    attackConeStrokeColor: 'rgba(143,182,201,0.28)',
     pickupRadiusColor: 'rgba(123, 232, 255, 0.08)',
     magnetRadiusColor: 'rgba(123, 232, 255, 0.035)',
     playerRangeLineWidth: 1.5,
@@ -462,6 +464,7 @@ async function preloadImages() {
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function rand(min, max) { return Math.random() * (max - min) + min; }
 function distance(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function degToRad(deg) { return deg * Math.PI / 180; }
 
 
 function getPlayerCastPosition() {
@@ -1295,16 +1298,47 @@ function drawBackground() {
   ctx.fillStyle = '#0d1730';
   ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
 }
-function drawRanges() {
-  const player = gameState.player;
+function drawPickupRadius() {
+  const player = gameState?.player;
   if (!player) return;
+  const pickupRadius = Number.isFinite(player.pickupRadius) ? player.pickupRadius : 0;
+  const magnetRadius = Number.isFinite(player.magnetRadius) ? player.magnetRadius : 0;
   ctx.fillStyle = CONFIG.visuals.pickupRadiusColor;
-  ctx.beginPath(); ctx.arc(player.x, player.y, player.pickupRadius || 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, pickupRadius, 0, Math.PI * 2);
+  ctx.fill();
   ctx.fillStyle = CONFIG.visuals.magnetRadiusColor;
-  ctx.beginPath(); ctx.arc(player.x, player.y, player.magnetRadius || 0, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = CONFIG.visuals.playerRangeColor;
-  ctx.lineWidth = CONFIG.visuals.playerRangeLineWidth;
-  ctx.beginPath(); ctx.arc(player.x, player.y, player.attackRange, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, magnetRadius, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawAttackCone() {
+  const player = gameState?.player;
+  if (!player) return;
+  const attackRange = Number.isFinite(player.attackRange) ? player.attackRange : 0;
+  const coneDegrees = Number.isFinite(player.attackConeDegrees)
+    ? player.attackConeDegrees
+    : (Number.isFinite(CONFIG.player?.attackConeDegrees) ? CONFIG.player.attackConeDegrees : 150);
+  const forwardAngle = player.facingX === 1 ? 0 : Math.PI;
+  const halfCone = degToRad(coneDegrees) / 2;
+  const startAngle = forwardAngle - halfCone;
+  const endAngle = forwardAngle + halfCone;
+  ctx.fillStyle = CONFIG.visuals.attackConeFillColor;
+  ctx.strokeStyle = CONFIG.visuals.attackConeStrokeColor;
+  ctx.lineWidth = Number.isFinite(CONFIG.visuals.playerRangeLineWidth) ? CONFIG.visuals.playerRangeLineWidth : 1;
+  ctx.beginPath();
+  ctx.moveTo(player.x, player.y);
+  ctx.arc(player.x, player.y, attackRange, startAngle, endAngle);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawRanges() {
+  if (!gameState?.player) return;
+  drawPickupRadius();
+  drawAttackCone();
 }
 function drawEnemies() { (gameState.enemies || []).forEach(e => { drawEntityShadow(e, CONFIG.visuals.enemyShadowColor); drawEntityWithFallback(e, gameState.images.enemy, '#85ff8a'); drawEnemyHpBar(e); }); }
 function drawPlayer() { if (!gameState.player) return; drawEntityShadow(gameState.player, CONFIG.visuals.playerShadowColor); drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a'); }
