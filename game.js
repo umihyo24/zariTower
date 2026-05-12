@@ -64,6 +64,12 @@ const CONFIG = {
     targetSurvivalTime: 300,
     endEventDarknessAlpha: 0.35,
   },
+  meta: {
+    coinsPerKill: 1,
+    coinsPerLevel: 3,
+    clearBonusCoins: 25,
+    debugRewardsEnabled: false,
+  },
   debug: {
     enabled: false,
     targetSurvivalTimeOverride: null,
@@ -148,6 +154,12 @@ const gameState = {
   startUi: {
     debugMenuOpen: false,
   },
+  meta: {
+    coins: 0,
+    totalRuns: 0,
+    bestSurvivalTime: 0,
+    unlockedFlags: {},
+  },
 };
 
 const BLOCK_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
@@ -172,6 +184,7 @@ const openDebugMenuBtn = document.getElementById('openDebugMenuBtn');
 const startMainMenu = document.getElementById('startMainMenu');
 const debugMenu = document.getElementById('debugMenu');
 const debugPresetOptions = document.getElementById('debugPresetOptions');
+const startMetaStats = document.getElementById('startMetaStats');
 const startDebugBtn = document.getElementById('startDebugBtn');
 const debugBackBtn = document.getElementById('debugBackBtn');
 const levelupModal = document.getElementById('levelupModal');
@@ -201,6 +214,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
     projectiles: [], particles: [], xpGems: [],
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
     level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, tododon: null, screenDarkness: 0, currentMutationOptions: [], nextEnemyId: 1,
+    runCoinsEarned: 0, runCompleted: false,
     player: {
       x: CONFIG.canvas.width / 2,
       y: CONFIG.canvas.height / 2,
@@ -255,24 +269,67 @@ function startEndingEvent() {
 
 function buildRunSummary() {
   const survived = Number.isFinite(gameState.runTime) ? gameState.runTime.toFixed(1) : '0.0';
-  return `Level ${gameState.level} • Defeated ${gameState.score} enemies • Survived ${survived}s`;
+  const isDebugRun = Boolean(gameState?.debug?.enabled);
+  const rewardsBlocked = isDebugRun && !CONFIG.meta.debugRewardsEnabled;
+  const runCoinsText = rewardsBlocked
+    ? '0 (debug run)'
+    : `${Math.max(0, Math.floor(gameState.runCoinsEarned || 0))}`;
+  const totalCoins = Math.max(0, Math.floor(gameState?.meta?.coins || 0));
+  return [
+    `Level ${gameState.level} • Defeated ${gameState.score} enemies • Survived ${survived}s`,
+    `Coins earned: ${runCoinsText}`,
+    `Total coins: ${totalCoins}`,
+  ].join('<br>');
+}
+
+function calculateRunCoins(isClear) {
+  const isDebugRun = Boolean(gameState?.debug?.enabled);
+  if (isDebugRun && !CONFIG.meta.debugRewardsEnabled) return 0;
+  const kills = Math.max(0, Math.floor(gameState?.score || 0));
+  const level = Math.max(0, Math.floor(gameState?.level || 0));
+  const killCoins = kills * Math.max(0, Math.floor(CONFIG.meta.coinsPerKill || 0));
+  const levelCoins = level * Math.max(0, Math.floor(CONFIG.meta.coinsPerLevel || 0));
+  const clearBonus = isClear ? Math.max(0, Math.floor(CONFIG.meta.clearBonusCoins || 0)) : 0;
+  return killCoins + levelCoins + clearBonus;
+}
+
+function finalizeRun(isClear) {
+  if (gameState.runCompleted) return;
+  gameState.runCompleted = true;
+  const earned = calculateRunCoins(isClear);
+  gameState.runCoinsEarned = earned;
+  gameState.meta.coins = Math.max(0, Math.floor((gameState?.meta?.coins || 0) + earned));
+  gameState.meta.totalRuns = Math.max(0, Math.floor((gameState?.meta?.totalRuns || 0) + 1));
+  const runTime = Number.isFinite(gameState?.runTime) ? gameState.runTime : 0;
+  gameState.meta.bestSurvivalTime = Math.max(gameState?.meta?.bestSurvivalTime || 0, runTime);
+}
+
+function syncStartMetaStats() {
+  if (!startMetaStats) return;
+  const totalCoins = Math.max(0, Math.floor(gameState?.meta?.coins || 0));
+  const bestTime = formatTime(gameState?.meta?.bestSurvivalTime || 0);
+  startMetaStats.textContent = `Total coins: ${totalCoins} • Best survival: ${bestTime}`;
 }
 
 function showGameOver() {
+  finalizeRun(false);
   gameState.phase = 'gameover';
   gameState.previousPhaseBeforePause = null;
   gameState.isPaused = true;
-  if (finalStats) finalStats.textContent = buildRunSummary();
+  if (finalStats) finalStats.innerHTML = buildRunSummary();
+  syncStartMetaStats();
   gameOverModal?.classList.remove('hidden');
 }
 
 function showClear() {
+  finalizeRun(true);
   gameState.phase = 'clear';
   gameState.previousPhaseBeforePause = null;
   gameState.isPaused = true;
   if (clearStats) {
-    clearStats.textContent = buildRunSummary();
+    clearStats.innerHTML = buildRunSummary();
   }
+  syncStartMetaStats();
   clearModal?.classList.remove('hidden');
 }
 
@@ -1237,6 +1294,7 @@ openDebugMenuBtn?.addEventListener('click', () => {
   gameState.startUi.debugMenuOpen = true;
   syncStartMenuUi();
   renderDebugPresetOptions();
+  syncStartMetaStats();
 });
 
 debugBackBtn?.addEventListener('click', () => {
@@ -1259,6 +1317,7 @@ restartBtn.addEventListener('click', () => {
   resetState('start');
   syncStartMenuUi();
   renderDebugPresetOptions();
+  syncStartMetaStats();
 });
 clearRestartBtn?.addEventListener('click', () => {
   gameState.startUi.debugMenuOpen = false;
@@ -1272,6 +1331,7 @@ clearRestartBtn?.addEventListener('click', () => {
   applyDebugPreset(gameState?.debug?.selectedPresetId || 'normal');
   syncStartMenuUi();
   renderDebugPresetOptions();
+  syncStartMetaStats();
   await preloadImages();
   requestAnimationFrame(loop);
 })();
