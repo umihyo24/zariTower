@@ -26,6 +26,7 @@
           <p id="startMetaStats"></p>
           <div id="startMainMenu">
             <button id="startNormalBtn" type="button">Start Normal Run</button>
+            <button id="openTododonShopBtn" type="button" class="hidden">Tododon Shop</button>
             <button id="openDebugMenuBtn" type="button">Debug Menu</button>
           </div>
           <div id="debugMenu" class="hidden">
@@ -57,6 +58,26 @@
           <h2 id="clearTitle">RUN COMPLETE</h2>
           <p id="clearStats"></p>
           <button id="clearRestartBtn" type="button">Run Again</button>
+        </div>
+      </div>
+
+      <div id="eventModal" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="eventTitle">
+        <div class="panel">
+          <h2 id="eventTitle">Tododon Event</h2>
+          <p id="eventBodyText"></p>
+          <div id="eventChoiceButtons">
+            <button id="eventChoice1Btn" type="button">1. ミセ　ヤル！</button>
+            <button id="eventChoice2Btn" type="button">2. オデ　トドドン　ユルサナイ！</button>
+          </div>
+          <button id="eventContinueBtn" type="button" class="hidden">Continue</button>
+        </div>
+      </div>
+
+      <div id="tododonShopModal" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="tododonShopTitle">
+        <div class="panel">
+          <h2 id="tododonShopTitle">Tododon Shop</h2>
+          <p>Coming Soon</p>
+          <button id="tododonShopCloseBtn" type="button">Close</button>
         </div>
       </div>
     </section>
