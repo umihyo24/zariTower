@@ -30,6 +30,9 @@ const CONFIG = {
     spawnIntervalDecayPerMinute: 0.18,
     hpGrowthPerMinute: 0.08,
     speedGrowthPerMinute: 0.04,
+    separationRadius: 30,
+    separationStrength: 0.45,
+    maxSeparationPush: 45,
   },
   projectile: {
     radius: 5,
@@ -465,6 +468,7 @@ function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function rand(min, max) { return Math.random() * (max - min) + min; }
 function distance(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 function degToRad(deg) { return deg * Math.PI / 180; }
+function isFiniteNumber(value) { return Number.isFinite(value); }
 
 
 function getPlayerCastPosition() {
@@ -878,6 +882,81 @@ function updateParticles(dt) {
   gameState.particles = nextParticles;
 }
 
+
+function applyEnemySeparation(dt) {
+  const enemies = Array.isArray(gameState?.enemies) ? gameState.enemies : [];
+  if (enemies.length <= 1) return;
+
+  const separationRadius = Number.isFinite(CONFIG.enemy?.separationRadius) && CONFIG.enemy.separationRadius > 0
+    ? CONFIG.enemy.separationRadius
+    : 0;
+  const separationStrength = Number.isFinite(CONFIG.enemy?.separationStrength) && CONFIG.enemy.separationStrength > 0
+    ? CONFIG.enemy.separationStrength
+    : 0;
+  const maxSeparationPush = Number.isFinite(CONFIG.enemy?.maxSeparationPush) && CONFIG.enemy.maxSeparationPush > 0
+    ? CONFIG.enemy.maxSeparationPush
+    : 0;
+
+  if (separationRadius <= 0 || separationStrength <= 0 || maxSeparationPush <= 0 || !isFiniteNumber(dt) || dt <= 0) return;
+
+  for (let i = 0; i < enemies.length; i += 1) {
+    const enemyA = enemies[i];
+    if (!enemyA) continue;
+
+    for (let j = i + 1; j < enemies.length; j += 1) {
+      const enemyB = enemies[j];
+      if (!enemyB) continue;
+
+      const ax = isFiniteNumber(enemyA.x) ? enemyA.x : 0;
+      const ay = isFiniteNumber(enemyA.y) ? enemyA.y : 0;
+      const bx = isFiniteNumber(enemyB.x) ? enemyB.x : 0;
+      const by = isFiniteNumber(enemyB.y) ? enemyB.y : 0;
+
+      let dx = ax - bx;
+      let dy = ay - by;
+      let dist = Math.hypot(dx, dy);
+
+      if (!isFiniteNumber(dist)) continue;
+      if (dist < 0.0001) {
+        const angle = (i * 12.9898 + j * 78.233) % (Math.PI * 2);
+        dx = Math.cos(angle);
+        dy = Math.sin(angle);
+        dist = 1;
+      }
+
+      if (dist >= separationRadius) continue;
+
+      const overlapFactor = 1 - (dist / separationRadius);
+      if (!isFiniteNumber(overlapFactor) || overlapFactor <= 0) continue;
+
+      const push = overlapFactor * separationStrength * maxSeparationPush * dt;
+      if (!isFiniteNumber(push) || push <= 0) continue;
+
+      const dirX = dx / dist;
+      const dirY = dy / dist;
+      if (!isFiniteNumber(dirX) || !isFiniteNumber(dirY)) continue;
+
+      const halfPush = push * 0.5;
+      const pushX = dirX * halfPush;
+      const pushY = dirY * halfPush;
+
+      enemyA.x = ax + pushX;
+      enemyA.y = ay + pushY;
+      enemyB.x = bx - pushX;
+      enemyB.y = by - pushY;
+
+      if (!isFiniteNumber(enemyA.x) || !isFiniteNumber(enemyA.y)) {
+        enemyA.x = ax;
+        enemyA.y = ay;
+      }
+      if (!isFiniteNumber(enemyB.x) || !isFiniteNumber(enemyB.y)) {
+        enemyB.x = bx;
+        enemyB.y = by;
+      }
+    }
+  }
+}
+
 function updateEnemies(dt) {
   const p = gameState.player;
   const isEnding = gameState.phase === 'ending';
@@ -920,6 +999,8 @@ function updateEnemies(dt) {
       enemy.knockbackY = 0;
     }
   });
+
+  if (!isEnding) applyEnemySeparation(dt);
 
   gameState.damageTimer -= dt;
   if (!isEnding && gameState.damageTimer <= 0) {
