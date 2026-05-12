@@ -71,6 +71,14 @@ const CONFIG = {
     targetSurvivalTime: 300,
     endEventDarknessAlpha: 0.35,
   },
+  special: {
+    maxEnergy: 100,
+    energyRegenPerSecond: 14,
+    wideEnergyCostPerShot: 6,
+    wideAttackConeDegrees: 260,
+    wideAttackCooldownMultiplier: 1.55,
+    minEnergyToActivateWide: 10,
+  },
   eventUi: {
     overlayAlpha: 0.2,
     panelWidthRatio: 0.84,
@@ -292,6 +300,9 @@ function resetState(nextPhase = gameState.phase || 'start') {
       magnetRadius: CONFIG.player.magnetRadius,
       projectilePierce: CONFIG.player.projectilePierce,
       attackConeDegrees: CONFIG.player.attackConeDegrees,
+      specialEnergy: CONFIG.special.maxEnergy,
+      maxSpecialEnergy: CONFIG.special.maxEnergy,
+      activeAttackMode: 'normal',
       attackTimer: 0,
       reflectPct: 0,
       facingX: -1,
@@ -518,6 +529,53 @@ function degToRad(deg) { return deg * Math.PI / 180; }
 function isFiniteNumber(value) { return Number.isFinite(value); }
 
 
+
+function getCurrentAttackConeDegrees() {
+  const p = gameState?.player;
+  const baseCone = Number.isFinite(p?.attackConeDegrees)
+    ? p.attackConeDegrees
+    : (Number.isFinite(CONFIG.player?.attackConeDegrees) ? CONFIG.player.attackConeDegrees : 150);
+  if (p?.activeAttackMode !== 'wide') return baseCone;
+  const wideCone = Number.isFinite(CONFIG.special?.wideAttackConeDegrees) ? CONFIG.special.wideAttackConeDegrees : baseCone;
+  return Math.max(baseCone, wideCone);
+}
+
+function getCurrentAttackCooldown() {
+  const p = gameState?.player;
+  const baseCooldown = Number.isFinite(p?.attackCooldown)
+    ? p.attackCooldown
+    : (Number.isFinite(CONFIG.player?.attackCooldown) ? CONFIG.player.attackCooldown : 0.55);
+  if (p?.activeAttackMode !== 'wide') return baseCooldown;
+  const multiplier = Number.isFinite(CONFIG.special?.wideAttackCooldownMultiplier) ? CONFIG.special.wideAttackCooldownMultiplier : 1;
+  return baseCooldown * Math.max(0, multiplier);
+}
+
+function toggleWideMode() {
+  if (gameState?.phase !== 'playing') return;
+  const p = gameState?.player;
+  if (!p) return;
+  if (p.activeAttackMode === 'wide') {
+    p.activeAttackMode = 'normal';
+    return;
+  }
+  const minEnergy = Number.isFinite(CONFIG.special?.minEnergyToActivateWide) ? CONFIG.special.minEnergyToActivateWide : 0;
+  const energy = Number.isFinite(p.specialEnergy) ? p.specialEnergy : 0;
+  if (energy >= minEnergy) p.activeAttackMode = 'wide';
+}
+
+function updateSpecialEnergy(dt) {
+  if (gameState?.phase !== 'playing') return;
+  const p = gameState?.player;
+  if (!p || !Number.isFinite(dt) || dt <= 0) return;
+  const maxEnergy = Number.isFinite(p.maxSpecialEnergy) ? p.maxSpecialEnergy : (Number.isFinite(CONFIG.special?.maxEnergy) ? CONFIG.special.maxEnergy : 100);
+  const regen = Number.isFinite(CONFIG.special?.energyRegenPerSecond) ? CONFIG.special.energyRegenPerSecond : 0;
+  const current = Number.isFinite(p.specialEnergy) ? p.specialEnergy : 0;
+  p.specialEnergy = clamp(current + regen * dt, 0, maxEnergy);
+  if (p.activeAttackMode === 'wide' && p.specialEnergy <= 0) {
+    p.activeAttackMode = 'normal';
+  }
+}
+
 function getPlayerCastPosition() {
   const p = gameState?.player;
   const castOffsetX = Number.isFinite(CONFIG.player?.castOffsetX) ? CONFIG.player.castOffsetX : 0;
@@ -544,7 +602,7 @@ function isInsideAttackCone(target) {
   const dirX = dx / distanceToTarget;
   const dirY = dy / distanceToTarget;
   const dot = forwardX * dirX + forwardY * dirY;
-  const coneDegrees = Number.isFinite(p.attackConeDegrees) ? p.attackConeDegrees : (Number.isFinite(CONFIG.player?.attackConeDegrees) ? CONFIG.player.attackConeDegrees : 150);
+  const coneDegrees = getCurrentAttackConeDegrees();
   const clampedCone = clamp(coneDegrees, 0, Number.isFinite(CONFIG.player?.maxAttackConeDegrees) ? CONFIG.player.maxAttackConeDegrees : 200);
   const threshold = Math.cos((clampedCone * 0.5) * (Math.PI / 180));
   return dot >= threshold;
@@ -838,8 +896,16 @@ function updatePlayerAttack(dt) {
         life: CONFIG.projectile.life,
         pierceLeft: Number.isFinite(p.projectilePierce) ? p.projectilePierce : 0,
         hitEnemyIds: new Set(),
+        specialMode: p.activeAttackMode === 'wide' ? 'wide' : 'normal',
       });
-      p.attackTimer = p.attackCooldown;
+      if (p.activeAttackMode === 'wide') {
+        const wideCost = Number.isFinite(CONFIG.special?.wideEnergyCostPerShot) ? CONFIG.special.wideEnergyCostPerShot : 0;
+        const maxEnergy = Number.isFinite(p.maxSpecialEnergy) ? p.maxSpecialEnergy : (Number.isFinite(CONFIG.special?.maxEnergy) ? CONFIG.special.maxEnergy : 100);
+        const current = Number.isFinite(p.specialEnergy) ? p.specialEnergy : 0;
+        p.specialEnergy = clamp(current - wideCost, 0, maxEnergy);
+        if (p.specialEnergy <= 0) p.activeAttackMode = 'normal';
+      }
+      p.attackTimer = getCurrentAttackCooldown();
     }
   }
 }
@@ -1238,6 +1304,7 @@ function updateRangeVisibility(dt) {
 
 function update(dt) {
   updateRangeVisibility(dt);
+  updateSpecialEnergy(dt);
   switch (gameState.phase) {
     case 'playing':
       if (gameState.resumeGraceTimer > 0) updateResumeGrace(dt);
@@ -1354,7 +1421,8 @@ function drawProjectiles() {
     ctx.beginPath();
     ctx.arc(proj.x, proj.y, proj.radius * 1.7, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = CONFIG.visuals.projectileCoreColor;
+    const projectileCoreColor = proj?.specialMode === 'wide' ? '#a68cff' : CONFIG.visuals.projectileCoreColor;
+    ctx.fillStyle = projectileCoreColor;
     ctx.beginPath();
     ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2);
     ctx.fill();
@@ -1419,7 +1487,7 @@ function drawHud() {
   const xpPct = gameState.xp / gameState.xpToNext;
 
   ctx.fillStyle = '#0008';
-  ctx.fillRect(16, 16, 290, 132);
+  ctx.fillRect(16, 16, 320, 170);
   ctx.fillStyle = '#fff';
   ctx.font = '14px sans-serif';
   ctx.fillText(`HP: ${Math.ceil(p.hp)} / ${p.maxHp}`, 26, 36);
@@ -1428,6 +1496,12 @@ function drawHud() {
   ctx.fillText(`Enemies: ${(gameState.enemies || []).length}/${getCurrentMaxEnemies()}`, 26, 90);
   ctx.fillText(`Time: ${formatTime(gameState.runTime)}`, 26, 108);
   ctx.fillText(`Goal: ${formatTime(getTargetSurvivalTime())}`, 26, 126);
+  const maxEnergy = Number.isFinite(p.maxSpecialEnergy) ? p.maxSpecialEnergy : 1;
+  const energy = Number.isFinite(p.specialEnergy) ? p.specialEnergy : 0;
+  const energyPct = maxEnergy > 0 ? clamp(energy / maxEnergy, 0, 1) : 0;
+  const modeLabel = p.activeAttackMode === 'wide' ? 'WIDE' : 'NORMAL';
+  ctx.fillText(`Mode: ${modeLabel}`, 26, 144);
+  ctx.fillText(`Energy: ${Math.floor(energy)} / ${Math.floor(maxEnergy)}`, 26, 162);
   if (gameState?.debug?.enabled && Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride)) {
     ctx.fillText(`DEBUG: Tododon ${formatTime(gameState.debug.targetSurvivalTimeOverride)}`, 160, 126);
   }
@@ -1435,10 +1509,13 @@ function drawHud() {
   ctx.fillStyle = '#2a334f';
   ctx.fillRect(120, 26, 140, 10);
   ctx.fillRect(120, 44, 140, 10);
+  ctx.fillRect(120, 152, 140, 10);
   ctx.fillStyle = '#ff6b6b';
   ctx.fillRect(120, 26, 140 * hpPct, 10);
   ctx.fillStyle = '#7be8ff';
   ctx.fillRect(120, 44, 140 * xpPct, 10);
+  ctx.fillStyle = '#b78cff';
+  ctx.fillRect(120, 152, 140 * energyPct, 10);
 }
 
 
@@ -1494,9 +1571,7 @@ function drawAttackCone() {
   const alpha = getRangeVisibilityAlpha();
   if (alpha <= 0) return;
   const attackRange = Number.isFinite(player.attackRange) ? player.attackRange : 0;
-  const coneDegrees = Number.isFinite(player.attackConeDegrees)
-    ? player.attackConeDegrees
-    : (Number.isFinite(CONFIG.player?.attackConeDegrees) ? CONFIG.player.attackConeDegrees : 150);
+  const coneDegrees = getCurrentAttackConeDegrees();
   const forwardAngle = player.facingX === 1 ? 0 : Math.PI;
   const halfCone = degToRad(coneDegrees) / 2;
   const startAngle = forwardAngle - halfCone;
@@ -1521,7 +1596,7 @@ function drawRanges() {
   drawAttackCone();
 }
 function drawEnemies() { (gameState.enemies || []).forEach(e => { drawEntityShadow(e, CONFIG.visuals.enemyShadowColor); drawEntityWithFallback(e, gameState.images.enemy, '#85ff8a'); drawEnemyHpBar(e); }); }
-function drawPlayer() { if (!gameState.player) return; drawEntityShadow(gameState.player, CONFIG.visuals.playerShadowColor); drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a'); }
+function drawPlayer() { if (!gameState.player) return; drawEntityShadow(gameState.player, CONFIG.visuals.playerShadowColor); drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a'); if (gameState.player.activeAttackMode === 'wide') { ctx.save(); ctx.strokeStyle = 'rgba(183, 140, 255, 0.7)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(gameState.player.x, gameState.player.y, gameState.player.radius + 4, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); } }
 function drawOverlays() {
   if (gameState.screenDarkness > 0) { ctx.fillStyle = `rgba(0, 0, 0, ${clamp(gameState.screenDarkness, 0, 1)})`; ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height); }
   drawPauseOverlay();
@@ -1683,8 +1758,15 @@ window.addEventListener('keydown', e => {
     }
   }
 
+  const canUseCombatHotkeys = gameState.phase === 'playing';
+  if (lowerKey === 'v' && canUseCombatHotkeys) {
+    e.preventDefault();
+    toggleWideMode();
+    return;
+  }
+
   const canRevealRanges = gameState.phase === 'playing' || gameState.phase === 'ending';
-  if (lowerKey === 'v' && canRevealRanges) {
+  if (lowerKey === 'r' && canRevealRanges) {
     e.preventDefault();
     revealRangeVisibility();
     return;
