@@ -92,7 +92,29 @@ canvas {
   padding: 0.7rem;
   cursor: pointer;
 }
+.mutation-card {
+  position: relative;
+  text-align: left;
+  padding-top: 1.9rem;
+}
 .mutation-card:hover, #restartBtn:hover, #clearRestartBtn:hover, #startNormalBtn:hover, #openDebugMenuBtn:hover, #startDebugBtn:hover, #debugBackBtn:hover, .debug-preset-btn:hover { border-color: var(--accent); }
+.mutation-shortcut-badge {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.55rem;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  border: 1px solid #88b9de;
+  background: #10233f;
+  color: #d9ecff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
 
 #startMainMenu:not(.hidden), #debugMenu:not(.hidden) {
   display: grid;
