@@ -143,6 +143,7 @@ const gameState = {
   chosenMutations: [],
   resumeGraceTimer: 0,
   tododon: null,
+  pendingEvent: null,
   screenDarkness: 0,
   currentMutationOptions: [],
   nextEnemyId: 1,
@@ -195,6 +196,15 @@ const restartBtn = document.getElementById('restartBtn');
 const clearModal = document.getElementById('clearModal');
 const clearStats = document.getElementById('clearStats');
 const clearRestartBtn = document.getElementById('clearRestartBtn');
+const eventModal = document.getElementById('eventModal');
+const eventBodyText = document.getElementById('eventBodyText');
+const eventChoiceButtons = document.getElementById('eventChoiceButtons');
+const eventChoice1Btn = document.getElementById('eventChoice1Btn');
+const eventChoice2Btn = document.getElementById('eventChoice2Btn');
+const eventContinueBtn = document.getElementById('eventContinueBtn');
+const openTododonShopBtn = document.getElementById('openTododonShopBtn');
+const tododonShopModal = document.getElementById('tododonShopModal');
+const tododonShopCloseBtn = document.getElementById('tododonShopCloseBtn');
 
 // ==============================
 // State / Run Lifecycle
@@ -214,6 +224,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
     projectiles: [], particles: [], xpGems: [],
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
     level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, tododon: null, screenDarkness: 0, currentMutationOptions: [], nextEnemyId: 1,
+    pendingEvent: null,
     runCoinsEarned: 0, runCompleted: false,
     player: {
       x: CONFIG.canvas.width / 2,
@@ -235,10 +246,20 @@ function resetState(nextPhase = gameState.phase || 'start') {
     },
     debug: preservedDebug,
     startUi: preservedStartUi,
+    meta: {
+      coins: Math.max(0, Math.floor(gameState?.meta?.coins || 0)),
+      totalRuns: Math.max(0, Math.floor(gameState?.meta?.totalRuns || 0)),
+      bestSurvivalTime: Math.max(0, Number(gameState?.meta?.bestSurvivalTime || 0)),
+      unlockedFlags: {
+        tododonShop: Boolean(gameState?.meta?.unlockedFlags?.tododonShop),
+      },
+    },
   });
   levelupModal.classList.add('hidden');
   gameOverModal.classList.add('hidden');
   clearModal?.classList.add('hidden');
+  eventModal?.classList.add('hidden');
+  tododonShopModal?.classList.add('hidden');
   startModal?.classList.toggle('hidden', nextPhase !== 'start');
 }
 
@@ -311,6 +332,20 @@ function syncStartMetaStats() {
   startMetaStats.textContent = `Total coins: ${totalCoins} • Best survival: ${bestTime}`;
 }
 
+function syncStartMenuUi() {
+  const isDebugMenuOpen = Boolean(gameState?.startUi?.debugMenuOpen);
+  startMainMenu?.classList.toggle('hidden', isDebugMenuOpen);
+  debugMenu?.classList.toggle('hidden', !isDebugMenuOpen);
+  const shopUnlocked = Boolean(gameState?.meta?.unlockedFlags?.tododonShop);
+  openTododonShopBtn?.classList.toggle('hidden', !shopUnlocked);
+}
+
+function unlockTododonShop() {
+  if (!gameState.meta || typeof gameState.meta !== 'object') gameState.meta = {};
+  if (!gameState.meta.unlockedFlags || typeof gameState.meta.unlockedFlags !== 'object') gameState.meta.unlockedFlags = {};
+  gameState.meta.unlockedFlags.tododonShop = true;
+}
+
 function showGameOver() {
   finalizeRun(false);
   gameState.phase = 'gameover';
@@ -333,6 +368,41 @@ function showClear() {
   clearModal?.classList.remove('hidden');
 }
 
+function showTododonEvent() {
+  const pendingEvent = gameState?.pendingEvent;
+  if (pendingEvent !== 'tododon_shop_unlock') return;
+  gameState.phase = 'event';
+  gameState.previousPhaseBeforePause = null;
+  gameState.isPaused = true;
+  if (eventBodyText) {
+    eventBodyText.textContent = 'Tododon:\n「オデ　オミセヤル」';
+    eventBodyText.style.whiteSpace = 'pre-line';
+  }
+  eventChoiceButtons?.classList.remove('hidden');
+  eventContinueBtn?.classList.add('hidden');
+  eventModal?.classList.remove('hidden');
+}
+
+function resolveTododonEvent(choice) {
+  const choiceId = choice === 2 ? 2 : 1;
+  if (eventBodyText) {
+    eventBodyText.style.whiteSpace = 'pre-line';
+    eventBodyText.textContent = choiceId === 1
+      ? 'Tododon:\n「オデ　ヤル！」'
+      : 'トドドンは悲しい顔をして去っていった。\nただ、あきらめていないようだ……';
+  }
+  unlockTododonShop();
+  gameState.pendingEvent = null;
+  eventChoiceButtons?.classList.add('hidden');
+  eventContinueBtn?.classList.remove('hidden');
+  syncStartMenuUi();
+}
+
+function closeTododonEventToClear() {
+  eventModal?.classList.add('hidden');
+  showClear();
+}
+
 function updateTododon(dt) {
   const tododon = gameState.tododon;
   const player = gameState.player;
@@ -353,7 +423,8 @@ function updateTododon(dt) {
 
   const touchRadius = Number.isFinite(CONFIG.tododon?.touchRadius) ? CONFIG.tododon.touchRadius : tododon.radius;
   if (dist <= touchRadius + (player.radius ?? 0)) {
-    showClear();
+    gameState.pendingEvent = 'tododon_shop_unlock';
+    showTododonEvent();
   }
 }
 
@@ -419,12 +490,6 @@ function applyDebugPreset(presetId) {
 
 function resetDebugToNormal() {
   applyDebugPreset('normal');
-}
-
-function syncStartMenuUi() {
-  const isDebugMenuOpen = Boolean(gameState?.startUi?.debugMenuOpen);
-  startMainMenu?.classList.toggle('hidden', isDebugMenuOpen);
-  debugMenu?.classList.toggle('hidden', !isDebugMenuOpen);
 }
 
 function renderDebugPresetOptions() {
@@ -974,6 +1039,8 @@ function update(dt) {
       if (gameState.resumeGraceTimer > 0) updateResumeGrace(dt);
       else updateEnding(dt);
       break;
+    case 'event':
+      break;
     default:
       break;
   }
@@ -1269,6 +1336,11 @@ window.addEventListener('keydown', e => {
     selectMutation(Number(key) - 1);
     return;
   }
+  if (gameState.phase === 'event' && (key === '1' || key === '2')) {
+    e.preventDefault();
+    resolveTododonEvent(Number(key));
+    return;
+  }
   if (BLOCK_KEYS.includes(key)) e.preventDefault();
   gameState.keys[key] = true;
 });
@@ -1324,6 +1396,16 @@ clearRestartBtn?.addEventListener('click', () => {
   resetState('start');
   syncStartMenuUi();
   renderDebugPresetOptions();
+});
+eventChoice1Btn?.addEventListener('click', () => resolveTododonEvent(1));
+eventChoice2Btn?.addEventListener('click', () => resolveTododonEvent(2));
+eventContinueBtn?.addEventListener('click', closeTododonEventToClear);
+openTododonShopBtn?.addEventListener('click', () => {
+  if (!gameState?.meta?.unlockedFlags?.tododonShop) return;
+  tododonShopModal?.classList.remove('hidden');
+});
+tododonShopCloseBtn?.addEventListener('click', () => {
+  tododonShopModal?.classList.add('hidden');
 });
 
 (async function init() {
