@@ -205,6 +205,7 @@ const gameState = {
   resumeGraceTimer: 0,
   tododon: null,
   endingStarted: false,
+  pendingLevelUps: 0,
   pendingEvent: null,
   event: null,
   screenDarkness: 0,
@@ -303,6 +304,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
     projectiles: [], particles: [], xpGems: [],
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
     level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, tododon: null, endingStarted: false, screenDarkness: 0, currentMutationOptions: [], nextEnemyId: 1,
+    pendingLevelUps: 0,
     pendingEvent: null,
     event: null,
     rangeVisibility: { visible: false, timer: 0 },
@@ -496,6 +498,30 @@ function closeTododonEventToClear() {
   gameState.event = null;
   eventModal?.classList.add('hidden');
   showClear();
+}
+
+function closeTododonEventToFlow(nextFlow = 'clear') {
+  if (nextFlow === 'clear') {
+    closeTododonEventToClear();
+    return;
+  }
+  if (nextFlow !== 'boss_duel' && nextFlow !== 'duel_prepare') {
+    closeTododonEventToClear();
+    return;
+  }
+  gameState.event = null;
+  eventModal?.classList.add('hidden');
+  if (!Number.isFinite(gameState?.pendingLevelUps) || gameState.pendingLevelUps <= 0) {
+    gameState.phase = nextFlow;
+    gameState.isPaused = false;
+    return;
+  }
+  gameState.phase = 'playing';
+  gameState.isPaused = false;
+  resolvePendingLevelUpsThen(() => {
+    gameState.phase = nextFlow;
+    gameState.isPaused = false;
+  });
 }
 
 function getActiveEventDefinition() {
@@ -884,6 +910,16 @@ function showLevelUp() {
   levelupModal.classList.remove('hidden');
 }
 
+function resolvePendingLevelUpsThen(nextAction) {
+  if (!Number.isFinite(gameState?.pendingLevelUps) || gameState.pendingLevelUps <= 0) {
+    if (typeof nextAction === 'function') nextAction();
+    return;
+  }
+  gameState.pendingLevelUps -= 1;
+  gameState.postLevelUpAction = () => resolvePendingLevelUpsThen(nextAction);
+  showLevelUp();
+}
+
 function selectMutation(index) {
   const mutation = gameState.currentMutationOptions?.[index];
   if (!mutation) return;
@@ -894,6 +930,9 @@ function selectMutation(index) {
   gameState.isPaused = false;
   gameState.phase = 'playing';
   gameState.resumeGraceTimer = CONFIG.levelUp.resumeGraceDuration;
+  const postLevelUpAction = gameState.postLevelUpAction;
+  gameState.postLevelUpAction = null;
+  if (typeof postLevelUpAction === 'function') postLevelUpAction();
 }
 
 function addXp(amount) {
@@ -907,6 +946,8 @@ function addXp(amount) {
     if (gameState?.phase === 'playing') {
       showLevelUp();
       if (gameState?.phase !== 'playing') break;
+    } else if (gameState?.phase === 'ending' || gameState?.phase === 'event') {
+      gameState.pendingLevelUps = (Number.isFinite(gameState?.pendingLevelUps) ? gameState.pendingLevelUps : 0) + 1;
     }
   }
 }
@@ -1870,7 +1911,7 @@ window.addEventListener('keydown', e => {
     }
     if (gameState?.event?.showingResult && (key === 'Enter' || key === ' ')) {
       e.preventDefault();
-      closeTododonEventToClear();
+      closeTododonEventToFlow('clear');
       return;
     }
     return;
@@ -1964,7 +2005,7 @@ clearRestartBtn?.addEventListener('click', () => {
 eventModal?.addEventListener('click', e => {
   if (gameState.phase !== 'event') return;
   if (gameState?.event?.showingResult) {
-    closeTododonEventToClear();
+    closeTododonEventToFlow('clear');
     return;
   }
   const def = getActiveEventDefinition();
