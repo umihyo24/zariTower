@@ -66,7 +66,12 @@ const CONFIG = {
   },
   debug: {
     enabled: false,
-    targetSurvivalTimeOverride: 60,
+    targetSurvivalTimeOverride: null,
+    presets: [
+      { id: 'normal', label: 'Normal', targetSurvivalTime: null },
+      { id: 'tododon_60', label: 'Tododon in 60s', targetSurvivalTime: 60 },
+      { id: 'tododon_30', label: 'Tododon in 30s', targetSurvivalTime: 30 },
+    ],
   },
   tododon: {
     radius: 240,
@@ -135,6 +140,14 @@ const gameState = {
   screenDarkness: 0,
   currentMutationOptions: [],
   nextEnemyId: 1,
+  debug: {
+    selectedPresetId: 'normal',
+    enabled: false,
+    targetSurvivalTimeOverride: null,
+  },
+  startUi: {
+    debugMenuOpen: false,
+  },
 };
 
 const BLOCK_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
@@ -154,7 +167,13 @@ const MUTATIONS = [
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 const startModal = document.getElementById('startModal');
-const startBtn = document.getElementById('startBtn');
+const startNormalBtn = document.getElementById('startNormalBtn');
+const openDebugMenuBtn = document.getElementById('openDebugMenuBtn');
+const startMainMenu = document.getElementById('startMainMenu');
+const debugMenu = document.getElementById('debugMenu');
+const debugPresetOptions = document.getElementById('debugPresetOptions');
+const startDebugBtn = document.getElementById('startDebugBtn');
+const debugBackBtn = document.getElementById('debugBackBtn');
 const levelupModal = document.getElementById('levelupModal');
 const mutationOptions = document.getElementById('mutationOptions');
 const gameOverModal = document.getElementById('gameOverModal');
@@ -165,6 +184,14 @@ const clearStats = document.getElementById('clearStats');
 const clearRestartBtn = document.getElementById('clearRestartBtn');
 
 function resetState(nextPhase = gameState.phase || 'start') {
+  const preservedDebug = {
+    selectedPresetId: gameState?.debug?.selectedPresetId || 'normal',
+    enabled: Boolean(gameState?.debug?.enabled),
+    targetSurvivalTimeOverride: Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride) ? gameState.debug.targetSurvivalTimeOverride : null,
+  };
+  const preservedStartUi = {
+    debugMenuOpen: Boolean(gameState?.startUi?.debugMenuOpen),
+  };
   Object.assign(gameState, {
     time: 0, runTime: 0, phase: nextPhase, previousPhaseBeforePause: null, isPaused: false, isGameOver: false, keys: {}, enemies: [],
     projectiles: [], particles: [], xpGems: [],
@@ -188,6 +215,8 @@ function resetState(nextPhase = gameState.phase || 'start') {
       reflectPct: 0,
       facingX: -1,
     },
+    debug: preservedDebug,
+    startUi: preservedStartUi,
   });
   levelupModal.classList.add('hidden');
   gameOverModal.classList.add('hidden');
@@ -196,7 +225,14 @@ function resetState(nextPhase = gameState.phase || 'start') {
 }
 
 function startRun() {
+  const preservedDebug = {
+    selectedPresetId: gameState?.debug?.selectedPresetId || 'normal',
+    enabled: Boolean(gameState?.debug?.enabled),
+    targetSurvivalTimeOverride: Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride) ? gameState.debug.targetSurvivalTimeOverride : null,
+  };
   resetState('playing');
+  gameState.debug = preservedDebug;
+  gameState.startUi.debugMenuOpen = false;
 }
 
 function startEndingEvent() {
@@ -271,12 +307,58 @@ function distance(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
 
 function getTargetSurvivalTime() {
-  if (CONFIG.debug?.enabled) {
-    const override = Number.isFinite(CONFIG.debug?.targetSurvivalTimeOverride) ? CONFIG.debug.targetSurvivalTimeOverride : 0;
+  const debugEnabled = Boolean(gameState?.debug?.enabled);
+  const override = gameState?.debug?.targetSurvivalTimeOverride;
+  if (debugEnabled && Number.isFinite(override)) {
     return Math.max(1, override);
   }
   const base = Number.isFinite(CONFIG.run?.targetSurvivalTime) ? CONFIG.run.targetSurvivalTime : 300;
   return Math.max(1, base);
+}
+
+function getDebugPresetById(presetId) {
+  const presets = Array.isArray(CONFIG.debug?.presets) ? CONFIG.debug.presets : [];
+  return presets.find(p => p?.id === presetId) || presets[0] || null;
+}
+
+function applyDebugPresetById(presetId) {
+  const preset = getDebugPresetById(presetId);
+  const nextId = preset?.id || 'normal';
+  gameState.debug.selectedPresetId = nextId;
+  const value = preset?.targetSurvivalTime;
+  if (Number.isFinite(value)) {
+    gameState.debug.enabled = true;
+    gameState.debug.targetSurvivalTimeOverride = value;
+    return;
+  }
+  gameState.debug.enabled = false;
+  gameState.debug.targetSurvivalTimeOverride = null;
+}
+
+function syncStartMenuUi() {
+  const isDebugMenuOpen = Boolean(gameState?.startUi?.debugMenuOpen);
+  startMainMenu?.classList.toggle('hidden', isDebugMenuOpen);
+  debugMenu?.classList.toggle('hidden', !isDebugMenuOpen);
+}
+
+function renderDebugPresetOptions() {
+  if (!debugPresetOptions) return;
+  const presets = Array.isArray(CONFIG.debug?.presets) ? CONFIG.debug.presets : [];
+  debugPresetOptions.innerHTML = '';
+  presets.forEach(preset => {
+    if (!preset?.id) return;
+    const optionBtn = document.createElement('button');
+    optionBtn.type = 'button';
+    optionBtn.textContent = preset.label || preset.id;
+    const isSelected = gameState?.debug?.selectedPresetId === preset.id;
+    optionBtn.className = `debug-preset-btn${isSelected ? ' selected' : ''}`;
+    optionBtn.addEventListener('click', () => {
+      if (gameState.phase !== 'start') return;
+      applyDebugPresetById(preset.id);
+      renderDebugPresetOptions();
+    });
+    debugPresetOptions.appendChild(optionBtn);
+  });
 }
 
 function formatTime(seconds) {
@@ -909,7 +991,9 @@ function drawHud() {
   ctx.fillText(`Enemies: ${(gameState.enemies || []).length}/${getCurrentMaxEnemies()}`, 26, 90);
   ctx.fillText(`Time: ${formatTime(gameState.runTime)}`, 26, 108);
   ctx.fillText(`Goal: ${formatTime(getTargetSurvivalTime())}`, 26, 126);
-  if (CONFIG.debug?.enabled) ctx.fillText('DEBUG: 1 min Tododon', 160, 126);
+  if (gameState?.debug?.enabled && Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride)) {
+    ctx.fillText(`DEBUG: Tododon ${formatTime(gameState.debug.targetSurvivalTimeOverride)}`, 160, 126);
+  }
 
   ctx.fillStyle = '#2a334f';
   ctx.fillRect(120, 26, 140, 10);
@@ -1027,18 +1111,55 @@ window.addEventListener('keyup', e => {
   if (BLOCK_KEYS.includes(e.key)) e.preventDefault();
   gameState.keys[e.key] = false;
 });
-startBtn?.addEventListener('click', () => {
+startNormalBtn?.addEventListener('click', () => {
+  if (gameState.phase !== 'start') return;
+  applyDebugPresetById('normal');
   startRun();
   startModal?.classList.add('hidden');
   gameOverModal.classList.add('hidden');
   clearModal?.classList.add('hidden');
 });
 
-restartBtn.addEventListener('click', () => resetState('start'));
-clearRestartBtn?.addEventListener('click', () => resetState('start'));
+openDebugMenuBtn?.addEventListener('click', () => {
+  if (gameState.phase !== 'start') return;
+  gameState.startUi.debugMenuOpen = true;
+  syncStartMenuUi();
+  renderDebugPresetOptions();
+});
+
+debugBackBtn?.addEventListener('click', () => {
+  if (gameState.phase !== 'start') return;
+  gameState.startUi.debugMenuOpen = false;
+  syncStartMenuUi();
+});
+
+startDebugBtn?.addEventListener('click', () => {
+  if (gameState.phase !== 'start') return;
+  applyDebugPresetById(gameState?.debug?.selectedPresetId || 'normal');
+  startRun();
+  startModal?.classList.add('hidden');
+  gameOverModal.classList.add('hidden');
+  clearModal?.classList.add('hidden');
+});
+
+restartBtn.addEventListener('click', () => {
+  gameState.startUi.debugMenuOpen = false;
+  resetState('start');
+  syncStartMenuUi();
+  renderDebugPresetOptions();
+});
+clearRestartBtn?.addEventListener('click', () => {
+  gameState.startUi.debugMenuOpen = false;
+  resetState('start');
+  syncStartMenuUi();
+  renderDebugPresetOptions();
+});
 
 (async function init() {
   resetState('start');
+  applyDebugPresetById(gameState?.debug?.selectedPresetId || 'normal');
+  syncStartMenuUi();
+  renderDebugPresetOptions();
   await preloadImages();
   requestAnimationFrame(loop);
 })();
