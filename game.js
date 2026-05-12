@@ -108,7 +108,7 @@ const CONFIG = {
 const gameState = {
   time: 0,
   runTime: 0,
-  phase: 'playing',
+  phase: 'start',
   isPaused: false,
   isGameOver: false,
   keys: {},
@@ -148,6 +148,8 @@ const MUTATIONS = [
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+const startModal = document.getElementById('startModal');
+const startBtn = document.getElementById('startBtn');
 const levelupModal = document.getElementById('levelupModal');
 const mutationOptions = document.getElementById('mutationOptions');
 const gameOverModal = document.getElementById('gameOverModal');
@@ -157,9 +159,9 @@ const clearModal = document.getElementById('clearModal');
 const clearStats = document.getElementById('clearStats');
 const clearRestartBtn = document.getElementById('clearRestartBtn');
 
-function resetState() {
+function resetState(nextPhase = gameState.phase || 'start') {
   Object.assign(gameState, {
-    time: 0, runTime: 0, phase: 'playing', isPaused: false, isGameOver: false, keys: {}, enemies: [],
+    time: 0, runTime: 0, phase: nextPhase, isPaused: false, isGameOver: false, keys: {}, enemies: [],
     projectiles: [], particles: [], xpGems: [],
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
     level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, tododon: null, screenDarkness: 0, currentMutationOptions: [], nextEnemyId: 1,
@@ -185,6 +187,11 @@ function resetState() {
   levelupModal.classList.add('hidden');
   gameOverModal.classList.add('hidden');
   clearModal?.classList.add('hidden');
+  startModal?.classList.toggle('hidden', nextPhase !== 'start');
+}
+
+function startRun() {
+  resetState('playing');
 }
 
 function startEndingEvent() {
@@ -681,8 +688,7 @@ function updateXpGems(dt) {
 }
 
 function update(dt) {
-  if (gameState.isGameOver) return;
-  if (gameState.phase === 'clear' || gameState.phase === 'gameover') return;
+  if (gameState.phase === 'start' || gameState.phase === 'levelup' || gameState.phase === 'gameover' || gameState.phase === 'clear') return;
   if (gameState.isPaused) return;
 
   if (gameState.resumeGraceTimer > 0) {
@@ -726,8 +732,7 @@ function update(dt) {
     gameState.spawnTimer = getCurrentSpawnInterval();
   }
 
-  if (gameState.player.hp <= 0) {
-    gameState.isGameOver = true;
+  if ((gameState.phase === 'playing' || gameState.phase === 'ending') && gameState.player.hp <= 0) {
     gameState.phase = 'gameover';
     finalStats.textContent = `Level ${gameState.level} • Defeated ${gameState.score} enemies • Survived ${gameState.runTime.toFixed(1)}s`;
     gameOverModal.classList.remove('hidden');
@@ -892,6 +897,9 @@ function render() {
   ctx.fillStyle = '#0d1730';
   ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
 
+  const player = gameState.player || null;
+  if (!player) return;
+
   ctx.fillStyle = CONFIG.visuals.pickupRadiusColor;
   ctx.beginPath();
   ctx.arc(gameState.player.x, gameState.player.y, gameState.player.pickupRadius || 0, 0, Math.PI * 2);
@@ -939,7 +947,7 @@ function loop(ts) {
 }
 
 window.addEventListener('keydown', e => {
-  const isMutationSelectionActive = gameState.isPaused && (gameState.currentMutationOptions?.length || 0) > 0;
+  const isMutationSelectionActive = gameState.phase === 'levelup' && (gameState.currentMutationOptions?.length || 0) > 0;
   if (isMutationSelectionActive && ['1', '2', '3'].includes(e.key)) {
     e.preventDefault();
     selectMutation(Number(e.key) - 1);
@@ -952,11 +960,18 @@ window.addEventListener('keyup', e => {
   if (BLOCK_KEYS.includes(e.key)) e.preventDefault();
   gameState.keys[e.key] = false;
 });
-restartBtn.addEventListener('click', () => resetState());
-clearRestartBtn?.addEventListener('click', () => resetState());
+startBtn?.addEventListener('click', () => {
+  startRun();
+  startModal?.classList.add('hidden');
+  gameOverModal.classList.add('hidden');
+  clearModal?.classList.add('hidden');
+});
+
+restartBtn.addEventListener('click', () => resetState('start'));
+clearRestartBtn?.addEventListener('click', () => resetState('start'));
 
 (async function init() {
-  resetState();
+  resetState('start');
   await preloadImages();
   requestAnimationFrame(loop);
 })();

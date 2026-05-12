@@ -16,6 +16,17 @@
     <section class="canvas-wrap">
       <canvas id="gameCanvas" width="960" height="540" aria-label="Crayfish survival game"></canvas>
 
+
+      <div id="startModal" class="overlay" role="dialog" aria-modal="true" aria-labelledby="startTitle">
+        <div class="panel">
+          <h2 id="startTitle">Tiny Survivors</h2>
+          <p>Move: Arrow keys / WASD</p>
+          <p>Build choice: click or 1/2/3</p>
+          <p>Survive until Tododon arrives</p>
+          <button id="startBtn" type="button">Start</button>
+        </div>
+      </div>
+
       <div id="levelupModal" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="levelupTitle">
         <div class="panel">
           <h2 id="levelupTitle">Level Up! Choose a Mutation</h2>
