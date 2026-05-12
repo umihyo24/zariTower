@@ -78,6 +78,9 @@ const CONFIG = {
     wideAttackConeDegrees: 260,
     wideAttackCooldownMultiplier: 1.55,
     minEnergyToActivateWide: 10,
+    lowEnergyThreshold: 0.25,
+    emptyEnergyThreshold: 1,
+    wideTargetingPriority: 'nearest',
   },
   eventUi: {
     overlayAlpha: 0.2,
@@ -145,6 +148,10 @@ const CONFIG = {
     enemyHpBarFillColor: '#6dff8c',
     projectileGlowColor: 'rgba(143, 182, 201, 0.52)',
     projectileCoreColor: '#7caec4',
+    energyColor: '#b78cff',
+    energyLowColor: '#ff9f5b',
+    energyBackgroundColor: '#2a334f',
+    wideModeColor: '#d2b8ff',
     hitParticleColor: 'rgba(200, 247, 255, 0.9)',
     hitParticleCount: 8,
     hitParticleLife: 0.2,
@@ -571,7 +578,8 @@ function updateSpecialEnergy(dt) {
   const regen = Number.isFinite(CONFIG.special?.energyRegenPerSecond) ? CONFIG.special.energyRegenPerSecond : 0;
   const current = Number.isFinite(p.specialEnergy) ? p.specialEnergy : 0;
   p.specialEnergy = clamp(current + regen * dt, 0, maxEnergy);
-  if (p.activeAttackMode === 'wide' && p.specialEnergy <= 0) {
+  const emptyThreshold = Number.isFinite(CONFIG.special?.emptyEnergyThreshold) ? CONFIG.special.emptyEnergyThreshold : 0;
+  if (p.activeAttackMode === 'wide' && p.specialEnergy <= emptyThreshold) {
     p.activeAttackMode = 'normal';
   }
 }
@@ -874,10 +882,14 @@ function updatePlayerAttack(dt) {
   const p = gameState.player;
   p.attackTimer -= dt;
   if (p.attackTimer <= 0) {
+    const priority = CONFIG.special?.wideTargetingPriority;
     const nearest = (gameState.enemies || [])
       .map(e => ({ e, d: distance(e, p) }))
       .filter(v => v.d <= p.attackRange && isInsideAttackCone(v.e))
-      .sort((a, b) => a.d - b.d)[0];
+      .sort((a, b) => {
+        if (p?.activeAttackMode === 'wide' && priority === 'nearest') return a.d - b.d;
+        return a.d - b.d;
+      })[0];
 
     if (nearest?.e) {
       const target = nearest.e;
@@ -903,7 +915,8 @@ function updatePlayerAttack(dt) {
         const maxEnergy = Number.isFinite(p.maxSpecialEnergy) ? p.maxSpecialEnergy : (Number.isFinite(CONFIG.special?.maxEnergy) ? CONFIG.special.maxEnergy : 100);
         const current = Number.isFinite(p.specialEnergy) ? p.specialEnergy : 0;
         p.specialEnergy = clamp(current - wideCost, 0, maxEnergy);
-        if (p.specialEnergy <= 0) p.activeAttackMode = 'normal';
+        const emptyThreshold = Number.isFinite(CONFIG.special?.emptyEnergyThreshold) ? CONFIG.special.emptyEnergyThreshold : 0;
+        if (p.specialEnergy <= emptyThreshold) p.activeAttackMode = 'normal';
       }
       p.attackTimer = getCurrentAttackCooldown();
     }
@@ -1500,13 +1513,20 @@ function drawHud() {
   const energy = Number.isFinite(p.specialEnergy) ? p.specialEnergy : 0;
   const energyPct = maxEnergy > 0 ? clamp(energy / maxEnergy, 0, 1) : 0;
   const modeLabel = p.activeAttackMode === 'wide' ? 'WIDE' : 'NORMAL';
+  const lowEnergyThreshold = Number.isFinite(CONFIG.special?.lowEnergyThreshold) ? CONFIG.special.lowEnergyThreshold : 0.25;
+  const isLowEnergy = energyPct <= lowEnergyThreshold;
+  const defaultTextColor = '#fff';
+  ctx.fillStyle = p.activeAttackMode === 'wide'
+    ? (CONFIG.visuals.wideModeColor || '#d2b8ff')
+    : defaultTextColor;
   ctx.fillText(`Mode: ${modeLabel}`, 26, 144);
+  ctx.fillStyle = defaultTextColor;
   ctx.fillText(`Energy: ${Math.floor(energy)} / ${Math.floor(maxEnergy)}`, 26, 162);
   if (gameState?.debug?.enabled && Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride)) {
     ctx.fillText(`DEBUG: Tododon ${formatTime(gameState.debug.targetSurvivalTimeOverride)}`, 160, 126);
   }
 
-  ctx.fillStyle = '#2a334f';
+  ctx.fillStyle = CONFIG.visuals.energyBackgroundColor || '#2a334f';
   ctx.fillRect(120, 26, 140, 10);
   ctx.fillRect(120, 44, 140, 10);
   ctx.fillRect(120, 152, 140, 10);
@@ -1514,8 +1534,15 @@ function drawHud() {
   ctx.fillRect(120, 26, 140 * hpPct, 10);
   ctx.fillStyle = '#7be8ff';
   ctx.fillRect(120, 44, 140 * xpPct, 10);
-  ctx.fillStyle = '#b78cff';
+  ctx.fillStyle = isLowEnergy
+    ? (CONFIG.visuals.energyLowColor || '#ff9f5b')
+    : (CONFIG.visuals.energyColor || '#b78cff');
   ctx.fillRect(120, 152, 140 * energyPct, 10);
+  if (p.activeAttackMode === 'wide') {
+    ctx.strokeStyle = CONFIG.visuals.wideModeColor || '#d2b8ff';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(22, 132, 116, 18);
+  }
 }
 
 
