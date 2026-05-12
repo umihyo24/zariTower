@@ -133,7 +133,11 @@ const CONFIG = {
     touchRadius: 380,
     color: '#3f5870',
     spawnOffset: 520,
-    screenDarkenSpeed: 0.12,
+    darknessStartAlpha: 0.08,
+    darknessMaxAlpha: 0.55,
+    darknessRampSpeed: 1.6,
+    darknessDistanceInfluence: 0.42,
+    darknessVignetteAlpha: 0.22,
   },
   assets: {
     playerImage: 'assets/crayfish.png',
@@ -200,6 +204,7 @@ const gameState = {
   chosenMutations: [],
   resumeGraceTimer: 0,
   tododon: null,
+  endingStarted: false,
   pendingEvent: null,
   event: null,
   screenDarkness: 0,
@@ -297,7 +302,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
     time: 0, runTime: 0, phase: nextPhase, previousPhaseBeforePause: null, isPaused: false, isGameOver: false, keys: {}, enemies: [],
     projectiles: [], particles: [], xpGems: [],
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
-    level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, tododon: null, screenDarkness: 0, currentMutationOptions: [], nextEnemyId: 1,
+    level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, tododon: null, endingStarted: false, screenDarkness: 0, currentMutationOptions: [], nextEnemyId: 1,
     pendingEvent: null,
     event: null,
     rangeVisibility: { visible: false, timer: 0 },
@@ -355,17 +360,26 @@ function startRun() {
 }
 
 function startEndingEvent() {
+  if (gameState?.endingStarted) return;
   const offset = Number.isFinite(CONFIG.tododon?.spawnOffset) ? CONFIG.tododon.spawnOffset : 320;
   const radius = Number.isFinite(CONFIG.tododon?.radius) ? CONFIG.tododon.radius : 240;
   const speed = Number.isFinite(CONFIG.tododon?.speed) ? CONFIG.tododon.speed : 26;
+  const darknessStart = Number.isFinite(CONFIG.tododon?.darknessStartAlpha) ? CONFIG.tododon.darknessStartAlpha : 0;
   gameState.phase = 'ending';
-  gameState.tododon = {
-    x: CONFIG.canvas.width + radius * 0.65 + offset * 0.3,
-    y: CONFIG.canvas.height + radius * 0.38 + offset * 0.18,
-    radius,
-    speed,
-    facingX: -1,
-  };
+  gameState.endingStarted = true;
+  gameState.spawnTimer = getCurrentSpawnInterval();
+  if (!gameState.tododon) {
+    gameState.tododon = {
+      x: CONFIG.canvas.width + radius * 0.65 + offset * 0.3,
+      y: CONFIG.canvas.height + radius * 0.38 + offset * 0.18,
+      radius,
+      speed,
+      facingX: -1,
+    };
+  }
+  if (!Number.isFinite(gameState.screenDarkness) || gameState.screenDarkness < darknessStart) {
+    gameState.screenDarkness = clamp(darknessStart, 0, 1);
+  }
 }
 
 function buildRunSummary() {
@@ -503,11 +517,19 @@ function updateTododon(dt) {
   tododon.x += dirX * tododon.speed * dt;
   tododon.y += dirY * tododon.speed * dt;
 
-  const darkenSpeed = Number.isFinite(CONFIG.tododon?.screenDarkenSpeed) ? CONFIG.tododon.screenDarkenSpeed : 0;
-  const darknessCap = Number.isFinite(CONFIG.run?.endEventDarknessAlpha) ? CONFIG.run.endEventDarknessAlpha : 0.35;
-  gameState.screenDarkness = clamp(gameState.screenDarkness + darkenSpeed * dt, 0, darknessCap);
+  const tododonRadius = Number.isFinite(tododon.radius) && tododon.radius > 0 ? tododon.radius : 1;
+  const playerRadius = Number.isFinite(player.radius) ? player.radius : 0;
+  const touchRadius = Number.isFinite(CONFIG.tododon?.touchRadius) ? CONFIG.tododon.touchRadius : tododonRadius;
+  const farDistance = Math.max(touchRadius + playerRadius + tododonRadius * 1.2, 1);
+  const nearFactor = clamp(1 - dist / farDistance, 0, 1);
+  const darknessStart = Number.isFinite(CONFIG.tododon?.darknessStartAlpha) ? CONFIG.tododon.darknessStartAlpha : 0;
+  const darknessCap = Number.isFinite(CONFIG.tododon?.darknessMaxAlpha) ? CONFIG.tododon.darknessMaxAlpha : 0.55;
+  const influence = Number.isFinite(CONFIG.tododon?.darknessDistanceInfluence) ? CONFIG.tododon.darknessDistanceInfluence : 0.4;
+  const rampSpeed = Number.isFinite(CONFIG.tododon?.darknessRampSpeed) ? CONFIG.tododon.darknessRampSpeed : 1.4;
+  const targetDarkness = clamp(darknessStart + nearFactor * influence, darknessStart, darknessCap);
+  const currentDarkness = Number.isFinite(gameState.screenDarkness) ? gameState.screenDarkness : darknessStart;
+  gameState.screenDarkness = clamp(currentDarkness + (targetDarkness - currentDarkness) * rampSpeed * dt, 0, darknessCap);
 
-  const touchRadius = Number.isFinite(CONFIG.tododon?.touchRadius) ? CONFIG.tododon.touchRadius : tododon.radius;
   if (dist <= touchRadius + (player.radius ?? 0)) {
     gameState.pendingEvent = 'tododon_shop_unlock';
     showTododonEvent();
@@ -842,6 +864,7 @@ function getNumberShortcutLabel(index) {
 }
 
 function showLevelUp() {
+  if (gameState?.phase !== 'playing') return;
   gameState.phase = 'levelup';
   gameState.isPaused = true;
   gameState.currentMutationOptions = chooseMutations();
@@ -874,12 +897,17 @@ function selectMutation(index) {
 }
 
 function addXp(amount) {
-  gameState.xp += amount;
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  if (safeAmount <= 0) return;
+  gameState.xp += safeAmount;
   while (gameState.xp >= gameState.xpToNext) {
     gameState.xp -= gameState.xpToNext;
     gameState.level += 1;
     gameState.xpToNext = Math.floor(gameState.xpToNext * CONFIG.progression.xpGrowth);
-    showLevelUp();
+    if (gameState?.phase === 'playing') {
+      showLevelUp();
+      if (gameState?.phase !== 'playing') break;
+    }
   }
 }
 
@@ -1299,7 +1327,10 @@ function updatePlaying(dt) {
   updateParticles(dt);
   updateEnemies(dt);
 
-  if (gameState.runTime >= getTargetSurvivalTime()) startEndingEvent();
+  if (gameState.phase === 'playing' && gameState.runTime >= getTargetSurvivalTime()) {
+    startEndingEvent();
+    return;
+  }
 
   gameState.spawnTimer -= dt;
   if (gameState.spawnTimer <= 0) {
@@ -1692,6 +1723,20 @@ function drawEnemies() {
 function drawPlayer() { if (!gameState.player) return; drawEntityShadow(gameState.player, CONFIG.visuals.playerShadowColor); drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a'); if (gameState.player.activeAttackMode === 'wide') { ctx.save(); ctx.strokeStyle = 'rgba(183, 140, 255, 0.7)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(gameState.player.x, gameState.player.y, gameState.player.radius + 4, 0, Math.PI * 2); ctx.stroke(); ctx.restore(); } }
 function drawOverlays() {
   if (gameState.screenDarkness > 0) { ctx.fillStyle = `rgba(0, 0, 0, ${clamp(gameState.screenDarkness, 0, 1)})`; ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height); }
+  if (gameState.phase === 'ending' && gameState.tododon) {
+    const vignetteAlpha = Number.isFinite(CONFIG.tododon?.darknessVignetteAlpha) ? CONFIG.tododon.darknessVignetteAlpha : 0;
+    if (vignetteAlpha > 0) {
+      const cx = CONFIG.canvas.width * 0.5;
+      const cy = CONFIG.canvas.height * 0.5;
+      const inner = Math.min(CONFIG.canvas.width, CONFIG.canvas.height) * 0.24;
+      const outer = Math.max(CONFIG.canvas.width, CONFIG.canvas.height) * 0.78;
+      const gradient = ctx.createRadialGradient(cx, cy, inner, cx, cy, outer);
+      gradient.addColorStop(0, `rgba(0, 0, 0, 0)`);
+      gradient.addColorStop(1, `rgba(0, 0, 0, ${clamp(vignetteAlpha, 0, 1)})`);
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+    }
+  }
   drawPauseOverlay();
 }
 function roundRect(context, x, y, w, h, r) {
@@ -1770,16 +1815,11 @@ function render() {
   drawParticles();
   drawProjectiles();
   drawEnemies();
-  if (gameState.phase === 'ending' && gameState.tododon) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-    ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
-    ctx.restore();
-  }
+  if (gameState.phase === 'ending') drawOverlays();
   if ((gameState.phase === 'ending' || gameState.phase === 'event' || gameState.phase === 'clear') && gameState.tododon) drawTododon();
   drawPlayer();
   drawHud();
-  drawOverlays();
+  if (gameState.phase !== 'ending') drawOverlays();
   drawEventUi();
 }
 
