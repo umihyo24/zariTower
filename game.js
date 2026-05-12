@@ -71,6 +71,23 @@ const CONFIG = {
     targetSurvivalTime: 300,
     endEventDarknessAlpha: 0.35,
   },
+  eventUi: {
+    overlayAlpha: 0.2,
+    panelWidthRatio: 0.84,
+    panelHeight: 188,
+    panelLeftMargin: 24,
+    panelBottomMargin: 20,
+    panelBorderRadius: 14,
+    speakerFontSize: 24,
+    textFontSize: 22,
+    hintFontSize: 16,
+    choiceHeight: 44,
+    choiceGap: 10,
+    choicePaddingX: 14,
+    choiceBlockTop: 94,
+    choiceBlockLeft: 16,
+    resultAdvanceHintY: 166,
+  },
   meta: {
     coinsPerKill: 1,
     coinsPerLevel: 3,
@@ -153,6 +170,7 @@ const gameState = {
   resumeGraceTimer: 0,
   tododon: null,
   pendingEvent: null,
+  event: null,
   screenDarkness: 0,
   currentMutationOptions: [],
   nextEnemyId: 1,
@@ -186,6 +204,17 @@ const MUTATIONS = [
   { id: 'piercing_shot', name: 'Piercing Shot', desc: '+1 projectile pierce', apply: s => { if (s?.player) s.player.projectilePierce += CONFIG.upgrades.projectilePierceBonus; } },
   { id: 'predator_eyes', name: 'Predator Eyes', desc: '+15 attack cone', apply: s => { if (s?.player) { const maxCone = Number.isFinite(CONFIG.player?.maxAttackConeDegrees) ? CONFIG.player.maxAttackConeDegrees : 200; const nextCone = (Number.isFinite(s.player.attackConeDegrees) ? s.player.attackConeDegrees : CONFIG.player.attackConeDegrees) + 15; s.player.attackConeDegrees = Math.min(maxCone, nextCone); } } },
 ];
+
+const EVENT_DEFINITIONS = {
+  tododon_shop_unlock: {
+    speaker: 'Tododon',
+    text: 'オデ　オミセヤル',
+    choices: [
+      { label: 'ミセ　ヤル！', resultText: 'オデ　ヤル！', action: 'unlockTododonShop' },
+      { label: 'オデ　トドドン　ユルサナイ！', resultText: 'トドドンは悲しい顔をして去っていった。\nただ、あきらめていないようだ……', action: 'unlockTododonShop' },
+    ],
+  },
+};
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -235,6 +264,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
     spawnTimer: 0, damageTimer: 0, xp: 0, xpToNext: CONFIG.progression.baseXpToLevel,
     level: 1, score: 0, chosenMutations: [], resumeGraceTimer: 0, tododon: null, screenDarkness: 0, currentMutationOptions: [], nextEnemyId: 1,
     pendingEvent: null,
+    event: null,
     runCoinsEarned: 0, runCompleted: false,
     player: {
       x: CONFIG.canvas.width / 2,
@@ -380,38 +410,44 @@ function showClear() {
 }
 
 function showTododonEvent() {
-  const pendingEvent = gameState?.pendingEvent;
-  if (pendingEvent !== 'tododon_shop_unlock') return;
+  const eventId = gameState?.pendingEvent;
+  const def = eventId ? EVENT_DEFINITIONS[eventId] : null;
+  if (!def) return;
   gameState.phase = 'event';
   gameState.previousPhaseBeforePause = null;
   gameState.isPaused = true;
-  if (eventBodyText) {
-    eventBodyText.textContent = 'Tododon:\n「オデ　オミセヤル」';
-    eventBodyText.style.whiteSpace = 'pre-line';
-  }
-  eventChoiceButtons?.classList.remove('hidden');
-  eventContinueBtn?.classList.add('hidden');
+  gameState.event = { id: eventId, step: 'choice', selectedChoiceIndex: null, showingResult: false, resultText: '' };
   eventModal?.classList.remove('hidden');
 }
 
-function resolveTododonEvent(choice) {
-  const choiceId = choice === 2 ? 2 : 1;
-  if (eventBodyText) {
-    eventBodyText.style.whiteSpace = 'pre-line';
-    eventBodyText.textContent = choiceId === 1
-      ? 'Tododon:\n「オデ　ヤル！」'
-      : 'トドドンは悲しい顔をして去っていった。\nただ、あきらめていないようだ……';
-  }
-  unlockTododonShop();
+function applyEventAction(action) {
+  if (action === 'unlockTododonShop') unlockTododonShop();
+  if (action === 'startBossDuel' && gameState?.event) gameState.event.resultText = '決戦ステージはまだ準備中です。';
+}
+
+function resolveEventChoice(choiceIndex) {
+  const def = getActiveEventDefinition();
+  const choices = Array.isArray(def?.choices) ? def.choices : [];
+  const selected = choices[choiceIndex];
+  if (!selected || !gameState?.event) return;
+  gameState.event.selectedChoiceIndex = choiceIndex;
+  gameState.event.step = 'result';
+  gameState.event.showingResult = true;
+  gameState.event.resultText = selected.resultText || '';
+  applyEventAction(selected.action);
   gameState.pendingEvent = null;
-  eventChoiceButtons?.classList.add('hidden');
-  eventContinueBtn?.classList.remove('hidden');
   syncStartMenuUi();
 }
 
 function closeTododonEventToClear() {
+  gameState.event = null;
   eventModal?.classList.add('hidden');
   showClear();
+}
+
+function getActiveEventDefinition() {
+  const eventId = gameState?.event?.id;
+  return eventId ? EVENT_DEFINITIONS[eventId] || null : null;
 }
 
 function updateTododon(dt) {
@@ -1427,6 +1463,73 @@ function drawOverlays() {
   if (gameState.screenDarkness > 0) { ctx.fillStyle = `rgba(0, 0, 0, ${clamp(gameState.screenDarkness, 0, 1)})`; ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height); }
   drawPauseOverlay();
 }
+function roundRect(context, x, y, w, h, r) {
+  const radius = Math.max(0, Math.min(r, w * 0.5, h * 0.5));
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.arcTo(x + w, y, x + w, y + h, radius);
+  context.arcTo(x + w, y + h, x, y + h, radius);
+  context.arcTo(x, y + h, x, y, radius);
+  context.arcTo(x, y, x + w, y, radius);
+  context.closePath();
+}
+function drawMultilineText(text, x, y, maxWidth, lineHeight) {
+  String(text || '').split('\n').forEach((line, idx) => ctx.fillText(line, x, y + lineHeight * idx, maxWidth));
+}
+function drawEventChoiceButtons(panelX, panelY, panelW) {
+  const def = getActiveEventDefinition();
+  if (!def) return;
+  const choices = Array.isArray(def.choices) ? def.choices : [];
+  const ui = CONFIG.eventUi;
+  const buttonW = panelW - ui.choiceBlockLeft * 2;
+  choices.forEach((choice, idx) => {
+    const bx = panelX + ui.choiceBlockLeft;
+    const by = panelY + ui.choiceBlockTop + (ui.choiceHeight + ui.choiceGap) * idx;
+    ctx.fillStyle = 'rgba(29, 58, 92, 0.9)';
+    ctx.strokeStyle = 'rgba(166, 208, 245, 0.95)';
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, bx, by, buttonW, ui.choiceHeight, 10);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#ecf6ff';
+    ctx.font = '20px sans-serif';
+    ctx.fillText(`${idx + 1}. ${choice?.label || ''}`, bx + ui.choicePaddingX, by + 28, buttonW - ui.choicePaddingX * 2);
+  });
+}
+function drawEventUi() {
+  if (gameState.phase !== 'event') return;
+  const def = getActiveEventDefinition();
+  if (!def) return;
+  const ui = CONFIG.eventUi;
+  const panelW = clamp(CONFIG.canvas.width * ui.panelWidthRatio, 560, CONFIG.canvas.width - ui.panelLeftMargin * 2);
+  const panelH = clamp(ui.panelHeight, 150, CONFIG.canvas.height - 40);
+  const panelX = ui.panelLeftMargin;
+  const panelY = CONFIG.canvas.height - panelH - ui.panelBottomMargin;
+  ctx.save();
+  ctx.fillStyle = `rgba(0, 0, 0, ${clamp(ui.overlayAlpha, 0, 0.5)})`;
+  ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+  ctx.fillStyle = 'rgba(10, 18, 34, 0.82)';
+  ctx.strokeStyle = 'rgba(151, 191, 226, 0.9)';
+  ctx.lineWidth = 2;
+  roundRect(ctx, panelX, panelY, panelW, panelH, ui.panelBorderRadius);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#a8daff';
+  ctx.font = `bold ${ui.speakerFontSize}px sans-serif`;
+  ctx.fillText(def.speaker || '???', panelX + 16, panelY + 32);
+  ctx.fillStyle = '#fff';
+  ctx.font = `${ui.textFontSize}px sans-serif`;
+  const bodyText = gameState?.event?.showingResult ? (gameState?.event?.resultText || '') : (def.text || '');
+  drawMultilineText(bodyText, panelX + 16, panelY + 62, panelW - 32, ui.textFontSize + 8);
+  if (gameState?.event?.showingResult) {
+    ctx.fillStyle = '#d8e8ff';
+    ctx.font = `${ui.hintFontSize}px sans-serif`;
+    ctx.fillText('Enter / Click で続行', panelX + 16, panelY + ui.resultAdvanceHintY);
+  } else {
+    drawEventChoiceButtons(panelX, panelY, panelW);
+  }
+  ctx.restore();
+}
 
 function render() {
   drawBackground();
@@ -1442,10 +1545,11 @@ function render() {
     ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
     ctx.restore();
   }
-  if ((gameState.phase === 'ending' || gameState.phase === 'clear') && gameState.tododon) drawTododon();
+  if ((gameState.phase === 'ending' || gameState.phase === 'event' || gameState.phase === 'clear') && gameState.tododon) drawTododon();
   drawPlayer();
   drawHud();
   drawOverlays();
+  drawEventUi();
 }
 
 // ==============================
@@ -1492,9 +1596,18 @@ window.addEventListener('keydown', e => {
     selectMutation(Number(key) - 1);
     return;
   }
-  if (gameState.phase === 'event' && (key === '1' || key === '2')) {
-    e.preventDefault();
-    resolveTododonEvent(Number(key));
+  if (gameState.phase === 'event') {
+    const choicesVisible = !gameState?.event?.showingResult;
+    if (choicesVisible && (key === '1' || key === '2')) {
+      e.preventDefault();
+      resolveEventChoice(Number(key) - 1);
+      return;
+    }
+    if (gameState?.event?.showingResult && (key === 'Enter' || key === ' ')) {
+      e.preventDefault();
+      closeTododonEventToClear();
+      return;
+    }
     return;
   }
   if (BLOCK_KEYS.includes(key)) e.preventDefault();
@@ -1553,9 +1666,31 @@ clearRestartBtn?.addEventListener('click', () => {
   syncStartMenuUi();
   renderDebugPresetOptions();
 });
-eventChoice1Btn?.addEventListener('click', () => resolveTododonEvent(1));
-eventChoice2Btn?.addEventListener('click', () => resolveTododonEvent(2));
-eventContinueBtn?.addEventListener('click', closeTododonEventToClear);
+eventModal?.addEventListener('click', e => {
+  if (gameState.phase !== 'event') return;
+  if (gameState?.event?.showingResult) {
+    closeTododonEventToClear();
+    return;
+  }
+  const def = getActiveEventDefinition();
+  if (!def) return;
+  const rect = canvas?.getBoundingClientRect?.();
+  if (!rect) return;
+  const mx = (e.clientX - rect.left) * (CONFIG.canvas.width / rect.width);
+  const my = (e.clientY - rect.top) * (CONFIG.canvas.height / rect.height);
+  const ui = CONFIG.eventUi;
+  const panelW = clamp(CONFIG.canvas.width * ui.panelWidthRatio, 560, CONFIG.canvas.width - ui.panelLeftMargin * 2);
+  const panelH = clamp(ui.panelHeight, 150, CONFIG.canvas.height - 40);
+  const panelX = ui.panelLeftMargin;
+  const panelY = CONFIG.canvas.height - panelH - ui.panelBottomMargin;
+  const buttonW = panelW - ui.choiceBlockLeft * 2;
+  const choices = Array.isArray(def.choices) ? def.choices : [];
+  choices.forEach((_, idx) => {
+    const bx = panelX + ui.choiceBlockLeft;
+    const by = panelY + ui.choiceBlockTop + (ui.choiceHeight + ui.choiceGap) * idx;
+    if (mx >= bx && mx <= bx + buttonW && my >= by && my <= by + ui.choiceHeight) resolveEventChoice(idx);
+  });
+});
 openTododonShopBtn?.addEventListener('click', () => {
   if (!gameState?.meta?.unlockedFlags?.tododonShop) return;
   tododonShopModal?.classList.remove('hidden');
