@@ -11,6 +11,10 @@ const CONFIG = {
     pickupRadius: 42,
     magnetRadius: 90,
     projectilePierce: 0,
+    attackConeDegrees: 150,
+    maxAttackConeDegrees: 200,
+    castOffsetX: -18,
+    castOffsetY: -6,
   },
   enemy: {
     baseRadius: 14,
@@ -28,16 +32,16 @@ const CONFIG = {
     speedGrowthPerMinute: 0.04,
   },
   projectile: {
-    radius: 6,
-    speed: 420,
+    radius: 5,
+    speed: 460,
     life: 0.9,
-    color: '#7be8ff',
-    hitColor: '#c8f7ff',
+    color: '#8fb6c9',
+    hitColor: '#c7dce7',
   },
   xpGem: {
     radius: 7,
-    color: '#7be8ff',
-    glowColor: 'rgba(123,232,255,0.35)',
+    color: '#b7ff8e',
+    glowColor: 'rgba(168,255,122,0.42)',
     value: 12,
     magnetSpeed: 240,
     maxMagnetSpeed: 420,
@@ -105,8 +109,8 @@ const CONFIG = {
     enemyHpBarYOffset: 16,
     enemyHpBarBackColor: 'rgba(0, 0, 0, 0.5)',
     enemyHpBarFillColor: '#6dff8c',
-    projectileGlowColor: 'rgba(200, 247, 255, 0.85)',
-    projectileCoreColor: '#7be8ff',
+    projectileGlowColor: 'rgba(143, 182, 201, 0.52)',
+    projectileCoreColor: '#7caec4',
     hitParticleColor: 'rgba(200, 247, 255, 0.9)',
     hitParticleCount: 8,
     hitParticleLife: 0.2,
@@ -175,6 +179,7 @@ const MUTATIONS = [
   { id: 'wide_sense', name: 'Wide Sense', desc: '+18 pickup radius', apply: s => { if (s?.player) s.player.pickupRadius += CONFIG.upgrades.pickupRadiusBonus; } },
   { id: 'magnetic_sense', name: 'Magnetic Sense', desc: '+35 magnet radius', apply: s => { if (s?.player) s.player.magnetRadius += CONFIG.upgrades.magnetRadiusBonus; } },
   { id: 'piercing_shot', name: 'Piercing Shot', desc: '+1 projectile pierce', apply: s => { if (s?.player) s.player.projectilePierce += CONFIG.upgrades.projectilePierceBonus; } },
+  { id: 'predator_eyes', name: 'Predator Eyes', desc: '+15 attack cone', apply: s => { if (s?.player) { const maxCone = Number.isFinite(CONFIG.player?.maxAttackConeDegrees) ? CONFIG.player.maxAttackConeDegrees : 200; const nextCone = (Number.isFinite(s.player.attackConeDegrees) ? s.player.attackConeDegrees : CONFIG.player.attackConeDegrees) + 15; s.player.attackConeDegrees = Math.min(maxCone, nextCone); } } },
 ];
 
 const canvas = document.getElementById('gameCanvas');
@@ -240,6 +245,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
       pickupRadius: CONFIG.player.pickupRadius,
       magnetRadius: CONFIG.player.magnetRadius,
       projectilePierce: CONFIG.player.projectilePierce,
+      attackConeDegrees: CONFIG.player.attackConeDegrees,
       attackTimer: 0,
       reflectPct: 0,
       facingX: -1,
@@ -456,6 +462,39 @@ async function preloadImages() {
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function rand(min, max) { return Math.random() * (max - min) + min; }
 function distance(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+
+function getPlayerCastPosition() {
+  const p = gameState?.player;
+  const castOffsetX = Number.isFinite(CONFIG.player?.castOffsetX) ? CONFIG.player.castOffsetX : 0;
+  const castOffsetY = Number.isFinite(CONFIG.player?.castOffsetY) ? CONFIG.player.castOffsetY : 0;
+  const facingX = p?.facingX === 1 ? 1 : -1;
+  const px = Number.isFinite(p?.x) ? p.x : 0;
+  const py = Number.isFinite(p?.y) ? p.y : 0;
+  return {
+    x: px + castOffsetX * facingX,
+    y: py + castOffsetY,
+  };
+}
+
+function isInsideAttackCone(target) {
+  const p = gameState?.player;
+  if (!p || !target) return false;
+  const dx = (target.x ?? 0) - (p.x ?? 0);
+  const dy = (target.y ?? 0) - (p.y ?? 0);
+  const distanceToTarget = Math.hypot(dx, dy);
+  if (!Number.isFinite(distanceToTarget) || distanceToTarget <= 0) return false;
+  const facingX = p.facingX === 1 ? 1 : -1;
+  const forwardX = facingX;
+  const forwardY = 0;
+  const dirX = dx / distanceToTarget;
+  const dirY = dy / distanceToTarget;
+  const dot = forwardX * dirX + forwardY * dirY;
+  const coneDegrees = Number.isFinite(p.attackConeDegrees) ? p.attackConeDegrees : (Number.isFinite(CONFIG.player?.attackConeDegrees) ? CONFIG.player.attackConeDegrees : 150);
+  const clampedCone = clamp(coneDegrees, 0, Number.isFinite(CONFIG.player?.maxAttackConeDegrees) ? CONFIG.player.maxAttackConeDegrees : 200);
+  const threshold = Math.cos((clampedCone * 0.5) * (Math.PI / 180));
+  return dot >= threshold;
+}
 
 
 function getTargetSurvivalTime() {
@@ -711,20 +750,21 @@ function updatePlayerAttack(dt) {
   const p = gameState.player;
   p.attackTimer -= dt;
   if (p.attackTimer <= 0) {
-    const nearest = gameState.enemies
+    const nearest = (gameState.enemies || [])
       .map(e => ({ e, d: distance(e, p) }))
-      .filter(v => v.d <= p.attackRange)
+      .filter(v => v.d <= p.attackRange && isInsideAttackCone(v.e))
       .sort((a, b) => a.d - b.d)[0];
 
     if (nearest?.e) {
       const target = nearest.e;
-      const dx = target.x - p.x;
-      const dy = target.y - p.y;
+      const spawn = getPlayerCastPosition();
+      const dx = (target.x ?? 0) - spawn.x;
+      const dy = (target.y ?? 0) - spawn.y;
       const d = Math.hypot(dx, dy) || 1;
       const speed = CONFIG.projectile.speed;
       gameState.projectiles.push({
-        x: p.x,
-        y: p.y,
+        x: spawn.x,
+        y: spawn.y,
         vx: (dx / d) * speed,
         vy: (dy / d) * speed,
         radius: CONFIG.projectile.radius,
@@ -1186,11 +1226,12 @@ function drawXpGems() {
     const y = Number.isFinite(gem.y) ? gem.y : 0;
     const radius = Number.isFinite(gem.radius) && gem.radius > 0 ? gem.radius : 1;
     ctx.save();
-    ctx.shadowBlur = radius * 3.2;
+    const pulse = 1 + Math.sin((gameState.time + x * 0.01 + y * 0.01) * 6) * 0.06;
+    ctx.shadowBlur = radius * 3.6 * pulse;
     ctx.shadowColor = gemGlowColor;
     ctx.fillStyle = gemGlowColor;
     ctx.beginPath();
-    ctx.arc(x, y, radius * 1.8, 0, Math.PI * 2);
+    ctx.arc(x, y, radius * 1.95 * pulse, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = gemColor;
     ctx.beginPath();
