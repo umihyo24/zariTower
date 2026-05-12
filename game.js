@@ -821,7 +821,7 @@ function showLevelUp() {
     btn.className = 'mutation-card';
     btn.innerHTML = `
       ${shortcutLabel ? `<span class="mutation-shortcut-badge" aria-hidden="true">${shortcutLabel}</span>` : ''}
-      <h3>${shortcutLabel ? `[${shortcutLabel}] ` : ''}${m?.name || ''}</h3>
+      <h3>${m?.name || ''}</h3>
       <p>${m?.desc || ''}</p>
     `;
     btn.onclick = () => selectMutation(index);
