@@ -170,18 +170,36 @@ const CONFIG = {
     tododonY: 270,
     tododonRadius: 95,
     tododonHp: 420,
-    tododonTouchDamage: 20,
-    tododonAttackInterval: 4.2,
-    tododonAttackWindup: 0.8,
-    tododonAirBulletCount: 9,
-    tododonAirBulletHp: 24,
-    tododonAirBulletRadius: 18,
-    tododonAirBulletSpeed: 120,
-    tododonAirBulletDamage: 10,
-    tododonVulnerableDuration: 2.0,
-    tododonVulnerableAfterAirWallCleared: true,
-    tododonArmorDamageMultiplier: 0.15,
-    tododonVulnerableDamageMultiplier: 1.0,
+    DUEL_TODODON_BASE_SCALE: 1.85,
+    DUEL_TODODON_ADVANCE_SCALE_BONUS: 0.35,
+    DUEL_TODODON_RIGHT_OFFSET: -70,
+    DUEL_TODODON_CONTACT_RADIUS: 48,
+    bossIdleDuration: 1.1,
+    inhaleWaveDuration: 1.0,
+    waveDuration: 2.2,
+    advanceDuration: 1.0,
+    inhaleCannonDuration: 0.9,
+    cannonWarningDuration: 0.9,
+    cannonBeamDuration: 1.0,
+    cannonCooldown: 4.0,
+    waveCount: 12,
+    waveSpeed: 145,
+    waveSpacing: 28,
+    waveHp: 18,
+    waveWidth: 20,
+    waveDamage: 11,
+    waveLifetime: 7.5,
+    cannonWidth: 86,
+    cannonDamage: 38,
+    advanceAmount: 0.14,
+    maxAdvance: 1,
+    contactDamage: 14,
+    contactInterval: 0.33,
+    manualShotCooldown: 0.17,
+    manualShotSpeed: 360,
+    manualShotDamage: 13,
+    manualShotRadius: 5,
+    manualShotLifetime: 1.6,
   },
   assets: {
     playerImage: 'assets/crayfish.png',
@@ -253,6 +271,8 @@ const gameState = {
   pendingEvent: null,
   event: null,
   duel: null,
+  manualShots: [],
+  input: { manualFirePressed: false, manualFireHeld: false },
   screenDarkness: 0,
   currentMutationOptions: [],
   nextEnemyId: 1,
@@ -296,9 +316,8 @@ const EVENT_DEFINITIONS = {
     speaker: 'Tododon',
     text: 'オデ　オミセヤル',
     choices: [
-      { label: 'ミセ　ヤル！', resultText: 'オデ　ヤル！', action: 'unlockTododonShop' },
-      { label: 'オデ　トドドン　ユルサナイ！', resultText: 'トドドンは悲しい顔をして去っていった。\nただ、あきらめていないようだ……', action: 'unlockTododonShop' },
-      { label: 'いざ！決戦のバトルフィールドへ！', resultText: 'トドドンが戦闘態勢に入った！', action: 'startBossDuel' },
+      { label: 'トドドンに近づく', resultText: 'トドドンが戦闘態勢に入った！', action: 'startBossDuel' },
+      { label: 'いったん退く', resultText: '距離をとって様子を見ることにした……', action: 'unlockTododonShop' },
     ],
   },
 };
@@ -354,6 +373,8 @@ function resetState(nextPhase = gameState.phase || 'start') {
     pendingEvent: null,
     event: null,
     duel: null,
+    manualShots: [],
+    input: { manualFirePressed: false, manualFireHeld: false },
     rangeVisibility: { visible: false, timer: 0 },
     runCoinsEarned: 0, runCompleted: false,
     player: {
@@ -596,31 +617,25 @@ function startDuelBattle() {
   player.x = clamp(Number(duelConfig.playerStartX) || 160, player.radius, (duelConfig.arenaWidth || CONFIG.canvas.width) - player.radius);
   player.y = clamp(Number(duelConfig.playerStartY) || 270, player.radius, (duelConfig.arenaHeight || CONFIG.canvas.height) - player.radius);
   player.attackTimer = 0;
+  gameState.manualShots = [];
+  gameState.input = { manualFirePressed: false, manualFireHeld: false };
   gameState.duel = {
     tododon: {
       id: 'duel_tododon',
       x: Number(duelConfig.tododonX) || 790, y: Number(duelConfig.tododonY) || 270, radius: Number(duelConfig.tododonRadius) || 95,
-      hp: Number(duelConfig.tododonHp) || 420, maxHp: Number(duelConfig.tododonHp) || 420, attackTimer: Number(duelConfig.tododonAttackInterval) || 4.2,
-      windupTimer: 0, state: 'idle', vulnerableTimer: 0,
+      hp: Number(duelConfig.tododonHp) || 420, maxHp: Number(duelConfig.tododonHp) || 420,
+      action: 'idle', actionTimer: Number(duelConfig.bossIdleDuration) || 1, loopStep: 0,
+      advanceLevel: 0, contactDamageTimer: 0, actionText: '', actionTextTimer: 0,
+      cannon: { active: false, warning: false, timer: 0, y: player.y, height: Number(duelConfig.cannonWidth) || 86 },
+      manualShotCooldownTimer: 0,
     },
-    airBullets: [],
-    currentWaveId: 0,
+    waveProjectiles: [],
     isComplete: false,
   };
 }
 
-function spawnDuelAirBulletWave() {
-  const duel = gameState?.duel; const tododon = duel?.tododon; const c = CONFIG.duel || {};
-  if (!duel || !tododon) return;
-  duel.currentWaveId += 1;
-  const count = Math.max(1, Math.floor(c.tododonAirBulletCount || 9));
-  const band = tododon.radius * 1.6;
-  for (let i = 0; i < count; i += 1) {
-    if (i % 4 === 2) continue;
-    const t = count <= 1 ? 0.5 : i / (count - 1);
-    duel.airBullets.push({ id: `air_${duel.currentWaveId}_${i}`, waveId: duel.currentWaveId, x: tododon.x - tododon.radius * 0.75, y: tododon.y - band * 0.5 + band * t, vx: -(c.tododonAirBulletSpeed || 120), vy: 0, radius: c.tododonAirBulletRadius || 18, hp: c.tododonAirBulletHp || 24, maxHp: c.tododonAirBulletHp || 24, damage: c.tododonAirBulletDamage || 10, type: 'airBullet' });
-  }
-}
+function setBossActionText(text = '', timer = 0) { const t = gameState?.duel?.tododon; if (!t) return; t.actionText = text; t.actionTextTimer = Math.max(0, Number(timer) || 0); }
+function spawnDuelWaveProjectiles() { const duel = gameState?.duel; const t = duel?.tododon; const c = CONFIG.duel || {}; if (!duel || !t) return; const count = Math.max(1, Math.floor(c.waveCount || 10)); const spacing = Number(c.waveSpacing) || 28; for (let i = 0; i < count; i += 1) { const y = t.y - ((count - 1) * spacing) / 2 + i * spacing + rand(-8, 8); if (Math.random() < 0.22) continue; duel.waveProjectiles.push({ x: t.x - t.radius * 0.75, y, vx: -(c.waveSpeed || 140), radius: Number(c.waveWidth) || 20, hp: Number(c.waveHp) || 18, damage: Number(c.waveDamage) || 10, life: Number(c.waveLifetime) || 7, alive: true }); } }
 
 function updateTododon(dt) {
   const tododon = gameState.tododon;
@@ -1087,7 +1102,7 @@ function updatePlayerAttack(dt) {
     const duelTargets = [];
     if (gameState?.phase === 'duel') {
       if (gameState?.duel?.tododon) duelTargets.push(gameState.duel.tododon);
-      duelTargets.push(...(gameState?.duel?.airBullets || []));
+      duelTargets.push(...(gameState?.duel?.waveProjectiles || []));
     }
     const attackTargets = [...(gameState.enemies || []), ...duelTargets];
     const nearest = attackTargets
@@ -1185,8 +1200,8 @@ function updateProjectiles(dt) {
       return distance(proj, enemy) <= proj.radius + enemy.radius;
     });
     const duel = gameState?.phase === 'duel' ? gameState?.duel : null;
-    const airHit = duel?.airBullets?.find(b => !projectileHitIds.has(b.id) && distance(proj, b) <= proj.radius + b.radius);
-    const hitEnemyOrBullet = hitEnemy || airHit;
+    const waveHit = duel?.waveProjectiles?.find((b, i) => b?.alive !== false && !projectileHitIds.has(`wave_${i}`) && distance(proj, b) <= proj.radius + b.radius);
+    const hitEnemyOrBullet = hitEnemy || waveHit;
     if (hitEnemyOrBullet) {
       const hitEnemy = hitEnemyOrBullet;
       if (!(duel && hitEnemy.id === 'duel_tododon')) hitEnemy.hp -= proj.damage;
@@ -1211,8 +1226,8 @@ function updateProjectiles(dt) {
         }
       }
 
-      if (hitEnemy.type !== 'airBullet' && hitEnemy.id !== 'duel_tododon') hitEnemy.knockbackX = (hitEnemy.knockbackX ?? 0) + dirX * CONFIG.combat.knockbackForce;
-      if (hitEnemy.type !== 'airBullet' && hitEnemy.id !== 'duel_tododon') hitEnemy.knockbackY = (hitEnemy.knockbackY ?? 0) + dirY * CONFIG.combat.knockbackForce;
+      if (hitEnemy.id !== 'duel_tododon' && hitEnemy.type !== 'waveProjectile') hitEnemy.knockbackX = (hitEnemy.knockbackX ?? 0) + dirX * CONFIG.combat.knockbackForce;
+      if (hitEnemy.id !== 'duel_tododon' && hitEnemy.type !== 'waveProjectile') hitEnemy.knockbackY = (hitEnemy.knockbackY ?? 0) + dirY * CONFIG.combat.knockbackForce;
 
       const knockbackSpeed = Math.hypot(hitEnemy.knockbackX || 0, hitEnemy.knockbackY || 0);
       if (knockbackSpeed > CONFIG.combat.maxKnockbackSpeed && knockbackSpeed > 0) {
@@ -1575,23 +1590,34 @@ function updateDuel(dt) {
   updateParticles(dt);
   p.x = clamp(p.x, p.radius, (c.arenaWidth || CONFIG.canvas.width) - p.radius);
   p.y = clamp(p.y, p.radius, (c.arenaHeight || CONFIG.canvas.height) - p.radius);
-  const t = duel.tododon;
-  if (!t) return;
-  t.attackTimer -= dt;
-  if (t.vulnerableTimer > 0) { t.vulnerableTimer -= dt; t.state = 'vulnerable'; }
-  else if (t.state === 'vulnerable') t.state = 'idle';
-  if (t.state === 'idle' && t.attackTimer <= 0) { t.state = 'windup'; t.windupTimer = c.tododonAttackWindup || 0.8; }
-  else if (t.state === 'windup') { t.windupTimer -= dt; if (t.windupTimer <= 0) { spawnDuelAirBulletWave(); t.state = 'firing'; t.attackTimer = c.tododonAttackInterval || 4.2; } }
-  duel.airBullets.forEach(b => { b.x += b.vx * dt; b.y += b.vy * dt; if (distance(b,p) <= b.radius + p.radius && gameState.damageTimer <= 0) { p.hp -= (b.damage || 0); gameState.damageTimer = CONFIG.enemy.damageCooldown; } });
-  gameState.damageTimer -= dt;
-  const activeWaveId = duel.currentWaveId;
-  duel.airBullets = duel.airBullets.filter(b => b.hp > 0 && b.x > -80 && b.x < (c.arenaWidth || CONFIG.canvas.width) + 80);
-  if ((c.tododonVulnerableAfterAirWallCleared !== false) && activeWaveId > 0) {
-    const hasWave = duel.airBullets.some(b => b.waveId === activeWaveId);
-    if (!hasWave && t.state === 'firing') { t.vulnerableTimer = c.tododonVulnerableDuration || 2; t.state = 'vulnerable'; }
-    if (!hasWave && t.state === 'firing' && t.vulnerableTimer <= 0) t.state = 'idle';
+  const t = duel.tododon; if (!t) return;
+  t.actionTimer = Math.max(0, (Number(t.actionTimer) || 0) - dt);
+  t.actionTextTimer = Math.max(0, (Number(t.actionTextTimer) || 0) - dt);
+  if (t.actionTextTimer <= 0) t.actionText = '';
+  t.manualShotCooldownTimer = Math.max(0, (Number(t.manualShotCooldownTimer) || 0) - dt);
+  const firePressed = Boolean(gameState?.input?.manualFirePressed || gameState?.input?.manualFireHeld);
+  if (firePressed && t.manualShotCooldownTimer <= 0) {
+    const dirX = (p.facingX === 1 ? 1 : -1);
+    gameState.manualShots.push({ x: p.x + dirX * (p.radius + 6), y: p.y, vx: dirX * (c.manualShotSpeed || 360), vy: 0, radius: c.manualShotRadius || 5, damage: c.manualShotDamage || 13, life: c.manualShotLifetime || 1.6 });
+    t.manualShotCooldownTimer = c.manualShotCooldown || 0.17;
   }
-  if (distance(t,p) <= t.radius + p.radius && gameState.damageTimer <= 0) { p.hp -= (c.tododonTouchDamage || 20); gameState.damageTimer = CONFIG.enemy.damageCooldown; }
+  gameState.input.manualFirePressed = false;
+  if (t.action === 'idle' && t.actionTimer <= 0) { t.action = t.loopStep % 2 === 0 ? 'inhale_wave' : 'inhale_cannon'; t.actionTimer = t.action === 'inhale_wave' ? (c.inhaleWaveDuration || 1) : (c.inhaleCannonDuration || 0.9); setBossActionText(t.action === 'inhale_wave' ? 'トドドンはいきをすいこんでいる……' : 'トドドンがふくらみはじめた……', t.actionTimer); }
+  else if (t.action === 'inhale_wave' && t.actionTimer <= 0) { spawnDuelWaveProjectiles(); t.action = 'wave'; t.actionTimer = c.waveDuration || 2.2; setBossActionText('トドドンのトドドン波ッ！', t.actionTimer); }
+  else if (t.action === 'wave' && t.actionTimer <= 0) { t.action = 'advance'; t.actionTimer = c.advanceDuration || 1; t.advanceLevel = clamp((t.advanceLevel || 0) + (c.advanceAmount || 0.14), 0, c.maxAdvance || 1); setBossActionText('トドドンがにじりよってくる……', t.actionTimer); }
+  else if (t.action === 'inhale_cannon' && t.actionTimer <= 0) { t.action = 'cannon_warning'; t.actionTimer = c.cannonWarningDuration || 0.9; t.cannon.warning = true; t.cannon.active = false; t.cannon.y = p.y; setBossActionText('トドドン砲がくる！', t.actionTimer); }
+  else if (t.action === 'cannon_warning' && t.actionTimer <= 0) { t.action = 'cannon'; t.actionTimer = c.cannonBeamDuration || 1; t.cannon.warning = false; t.cannon.active = true; }
+  else if (t.action === 'cannon' && t.actionTimer <= 0) { t.cannon.active = false; t.action = 'advance'; t.actionTimer = c.advanceDuration || 1; t.advanceLevel = clamp((t.advanceLevel || 0) + (c.advanceAmount || 0.14), 0, c.maxAdvance || 1); setBossActionText('トドドンがにじりよってくる……', t.actionTimer); t.loopStep += 1; }
+  else if (t.action === 'advance' && t.actionTimer <= 0) { t.action = 'idle'; t.actionTimer = c.bossIdleDuration || 1.1; }
+  duel.waveProjectiles.forEach(b => { b.x += b.vx * dt; b.life -= dt; if (b.hp <= 0 || b.life <= 0) b.alive = false; if (b.alive && distance(b,p) <= b.radius + p.radius && gameState.damageTimer <= 0) { p.hp -= (b.damage || 0); gameState.damageTimer = CONFIG.enemy.damageCooldown; } });
+  gameState.manualShots.forEach(s => { s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt; duel.waveProjectiles.forEach(w => { if (w.alive && s.life > 0 && distance(s, w) <= s.radius + w.radius) { w.hp -= (s.damage || 0); s.life = 0; if (w.hp <= 0) w.alive = false; } }); });
+  gameState.damageTimer -= dt;
+  duel.waveProjectiles = (duel.waveProjectiles || []).filter(b => b?.alive && Number.isFinite(b.x) && Number.isFinite(b.y) && b.x > -120 && b.x < (c.arenaWidth || CONFIG.canvas.width) + 120);
+  gameState.manualShots = (gameState.manualShots || []).filter(s => Number.isFinite(s?.x) && Number.isFinite(s?.y) && s.life > 0);
+  const contactR = (t.radius || 0) + (p.radius || 0) + (c.DUEL_TODODON_CONTACT_RADIUS || 48) * (1 + (t.advanceLevel || 0));
+  t.contactDamageTimer = Math.max(0, (t.contactDamageTimer || 0) - dt);
+  if (distance(t,p) <= contactR && t.contactDamageTimer <= 0) { p.hp -= (c.contactDamage || 14); t.contactDamageTimer = c.contactInterval || 0.33; }
+  if (t.cannon?.active) { const half = (c.cannonWidth || 86) * 0.5; if (Math.abs((p.y || 0) - (t.cannon.y || 0)) <= half && gameState.damageTimer <= 0) { p.hp -= (c.cannonDamage || 38); gameState.damageTimer = CONFIG.enemy.damageCooldown; } }
   if ((p.hp || 0) <= 0) { showGameOver(); return; }
   if ((t.hp || 0) <= 0) { duel.isComplete = true; unlockTododonShop(); showClear(); }
 }
@@ -1813,15 +1839,26 @@ function drawDuelArena() {
   ctx.restore();
 }
 function drawAirBullets() {
-  const airBullets = gameState?.duel?.airBullets || [];
-  airBullets.forEach(b => { ctx.save(); ctx.fillStyle = 'rgba(210,240,255,0.3)'; ctx.strokeStyle = 'rgba(235,250,255,0.85)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(b.x,b.y,b.radius,0,Math.PI*2); ctx.fill(); ctx.stroke(); ctx.restore(); });
+  const waves = gameState?.duel?.waveProjectiles || [];
+  waves.forEach(b => { ctx.save(); ctx.fillStyle = 'rgba(210,240,255,0.3)'; ctx.strokeStyle = 'rgba(235,250,255,0.85)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(b.x,b.y,b.radius,0,Math.PI*2); ctx.fill(); ctx.stroke(); ctx.restore(); });
+  const manualShots = gameState?.manualShots || [];
+  manualShots.forEach(s => { ctx.save(); ctx.fillStyle = 'rgba(255,220,175,0.95)'; ctx.beginPath(); ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2); ctx.fill(); ctx.restore(); });
 }
 function drawDuelTododon() {
   if (gameState.phase !== 'duel') return;
   const t = gameState?.duel?.tododon; if (!t) return;
-  drawEntityShadow(t, 'rgba(0,0,0,0.4)');
+  const c = CONFIG.duel || {};
+  const scale = (c.DUEL_TODODON_BASE_SCALE || 1.85) + (c.DUEL_TODODON_ADVANCE_SCALE_BONUS || 0.35) * (t.advanceLevel || 0);
+  const rightOffset = c.DUEL_TODODON_RIGHT_OFFSET || -70;
+  const h = CONFIG.canvas.height;
+  const targetR = clamp(h * 0.3 * scale, h * 0.275, h * 0.35);
+  t.radius = targetR;
+  t.x = CONFIG.canvas.width - targetR + rightOffset - targetR * (t.advanceLevel || 0) * 0.25;
+  drawEntityShadow(t, 'rgba(0,0,0,0.45)');
   drawEntityWithFallback(t, gameState.images?.enemy, '#4f6f8e');
+  if (t.cannon?.warning || t.cannon?.active) { ctx.save(); ctx.fillStyle = t.cannon.warning ? 'rgba(255,190,120,0.22)' : 'rgba(255,110,80,0.45)'; ctx.fillRect(0, (t.cannon.y || 0) - (c.cannonWidth || 86) / 2, CONFIG.canvas.width, c.cannonWidth || 86); ctx.restore(); }
 }
+function drawBossActionText() { const t = gameState?.duel?.tododon; if (!t || !t.actionText) return; const w = CONFIG.canvas.width - 120; const h = 38; const x = 60; const y = CONFIG.canvas.height - 60; const alpha = t.actionTextTimer < 0.3 ? clamp(t.actionTextTimer / 0.3, 0, 1) : 1; ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = 'rgba(8,14,24,0.58)'; ctx.fillRect(x, y, w, h); ctx.strokeStyle = 'rgba(220,236,255,0.35)'; ctx.strokeRect(x, y, w, h); ctx.fillStyle = '#ecf6ff'; ctx.font = '18px sans-serif'; ctx.fillText(t.actionText, x + 16, y + 25); ctx.restore(); }
 function drawDuelBossHpBar() {
   const t = gameState?.duel?.tododon; if (!t || gameState.phase !== 'duel') return;
   const w = 520; const h = 18; const x = (CONFIG.canvas.width - w) / 2; const y = 18; const pct = clamp((t.hp||0)/(t.maxHp||1),0,1);
@@ -2223,6 +2260,7 @@ function render() {
   drawPlayer();
   drawHud();
   drawDuelBossHpBar();
+  if (gameState.phase === 'duel') drawBossActionText();
   if (gameState.phase !== 'ending') drawOverlays();
   drawEventUi();
 }
@@ -2298,6 +2336,12 @@ window.addEventListener('keydown', e => {
   }
 
   const canUseCombatHotkeys = gameState.phase === 'playing' || gameState.phase === 'duel';
+  if (gameState.phase === 'duel' && key === ' ') {
+    e.preventDefault();
+    gameState.input.manualFirePressed = true;
+    gameState.input.manualFireHeld = true;
+    return;
+  }
   if (lowerKey === 'v' && canUseCombatHotkeys) {
     e.preventDefault();
     toggleWideMode();
@@ -2321,6 +2365,7 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => {
   if (BLOCK_KEYS.includes(e.key)) e.preventDefault();
+  if (e.key === ' ') gameState.input.manualFireHeld = false;
   gameState.keys[e.key] = false;
 });
 // ==============================
