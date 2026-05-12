@@ -88,6 +88,9 @@ const CONFIG = {
     choiceBlockLeft: 16,
     resultAdvanceHintY: 166,
   },
+  ui: {
+    maxNumberShortcuts: 9,
+  },
   meta: {
     coinsPerKill: 1,
     coinsPerLevel: 3,
@@ -101,6 +104,7 @@ const CONFIG = {
       { id: 'normal', label: 'Normal', targetSurvivalTime: null },
       { id: 'tododon_60', label: 'Tododon in 60s', targetSurvivalTime: 60 },
       { id: 'tododon_30', label: 'Tododon in 30s', targetSurvivalTime: 30 },
+      { id: 'tododon_3', label: 'Tododon in 3s', targetSurvivalTime: 3 },
     ],
   },
   tododon: {
@@ -741,15 +745,27 @@ function chooseMutations() {
   return pool.slice(0, 3);
 }
 
+function getNumberShortcutLabel(index) {
+  const maxShortcuts = Number.isFinite(CONFIG.ui?.maxNumberShortcuts) ? CONFIG.ui.maxNumberShortcuts : 9;
+  const oneBasedIndex = index + 1;
+  if (!Number.isFinite(oneBasedIndex) || oneBasedIndex < 1 || oneBasedIndex > maxShortcuts) return null;
+  return String(oneBasedIndex);
+}
+
 function showLevelUp() {
   gameState.phase = 'levelup';
   gameState.isPaused = true;
   gameState.currentMutationOptions = chooseMutations();
   mutationOptions.innerHTML = '';
   gameState.currentMutationOptions.forEach((m, index) => {
+    const shortcutLabel = getNumberShortcutLabel(index);
     const btn = document.createElement('button');
     btn.className = 'mutation-card';
-    btn.innerHTML = `<h3>${m.name}</h3><p>${m.desc}</p>`;
+    btn.innerHTML = `
+      ${shortcutLabel ? `<span class="mutation-shortcut-badge" aria-hidden="true">${shortcutLabel}</span>` : ''}
+      <h3>${shortcutLabel ? `[${shortcutLabel}] ` : ''}${m?.name || ''}</h3>
+      <p>${m?.desc || ''}</p>
+    `;
     btn.onclick = () => selectMutation(index);
     mutationOptions.appendChild(btn);
   });
@@ -1637,12 +1653,6 @@ window.addEventListener('keydown', e => {
     }
   }
 
-  const isMutationSelectionActive = gameState.phase === 'levelup' && (gameState.currentMutationOptions?.length || 0) > 0;
-  if (isMutationSelectionActive && ['1', '2', '3'].includes(key)) {
-    e.preventDefault();
-    selectMutation(Number(key) - 1);
-    return;
-  }
   if (gameState.phase === 'event') {
     const choicesVisible = !gameState?.event?.showingResult;
     if (choicesVisible && (key === '1' || key === '2')) {
@@ -1656,6 +1666,21 @@ window.addEventListener('keydown', e => {
       return;
     }
     return;
+  }
+
+  const isMutationSelectionActive = gameState.phase === 'levelup' && (gameState.currentMutationOptions?.length || 0) > 0;
+  if (isMutationSelectionActive) {
+    const maxShortcuts = Number.isFinite(CONFIG.ui?.maxNumberShortcuts) ? CONFIG.ui.maxNumberShortcuts : 9;
+    const parsed = Number.parseInt(key, 10);
+    const isDigitShortcut = Number.isInteger(parsed) && parsed >= 1 && parsed <= maxShortcuts;
+    if (isDigitShortcut) {
+      const index = parsed - 1;
+      if (gameState.currentMutationOptions?.[index]) {
+        e.preventDefault();
+        selectMutation(index);
+      }
+      return;
+    }
   }
 
   const canRevealRanges = gameState.phase === 'playing' || gameState.phase === 'ending';
