@@ -183,6 +183,10 @@ const clearModal = document.getElementById('clearModal');
 const clearStats = document.getElementById('clearStats');
 const clearRestartBtn = document.getElementById('clearRestartBtn');
 
+// ==============================
+// State / Run Lifecycle
+// ==============================
+
 function resetState(nextPhase = gameState.phase || 'start') {
   const preservedDebug = {
     selectedPresetId: gameState?.debug?.selectedPresetId || 'normal',
@@ -249,18 +253,30 @@ function startEndingEvent() {
   };
 }
 
-function showClearModal() {
+function buildRunSummary() {
   const survived = Number.isFinite(gameState.runTime) ? gameState.runTime.toFixed(1) : '0.0';
+  return `Level ${gameState.level} • Defeated ${gameState.score} enemies • Survived ${survived}s`;
+}
+
+function showGameOver() {
+  gameState.phase = 'gameover';
+  gameState.previousPhaseBeforePause = null;
+  gameState.isPaused = true;
+  if (finalStats) finalStats.textContent = buildRunSummary();
+  gameOverModal?.classList.remove('hidden');
+}
+
+function showClear() {
   gameState.phase = 'clear';
   gameState.previousPhaseBeforePause = null;
   gameState.isPaused = true;
   if (clearStats) {
-    clearStats.textContent = `Level ${gameState.level} • Defeated ${gameState.score} enemies • Survived ${survived}s`;
+    clearStats.textContent = buildRunSummary();
   }
   clearModal?.classList.remove('hidden');
 }
 
-function updateTododonEnding(dt) {
+function updateTododon(dt) {
   const tododon = gameState.tododon;
   const player = gameState.player;
   if (!tododon || !player) return;
@@ -280,9 +296,13 @@ function updateTododonEnding(dt) {
 
   const touchRadius = Number.isFinite(CONFIG.tododon?.touchRadius) ? CONFIG.tododon.touchRadius : tododon.radius;
   if (dist <= touchRadius + (player.radius ?? 0)) {
-    showClearModal();
+    showClear();
   }
 }
+
+// ==============================
+// Assets
+// ==============================
 
 function loadImage(key, src) {
   return new Promise(resolve => {
@@ -300,6 +320,10 @@ async function preloadImages() {
   ]);
   results.forEach(r => gameState.images[r.key] = r);
 }
+
+// ==============================
+// Utilities
+// ==============================
 
 function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 function rand(min, max) { return Math.random() * (max - min) + min; }
@@ -321,7 +345,7 @@ function getDebugPresetById(presetId) {
   return presets.find(p => p?.id === presetId) || presets[0] || null;
 }
 
-function applyDebugPresetById(presetId) {
+function applyDebugPreset(presetId) {
   const preset = getDebugPresetById(presetId);
   const nextId = preset?.id || 'normal';
   gameState.debug.selectedPresetId = nextId;
@@ -333,6 +357,11 @@ function applyDebugPresetById(presetId) {
   }
   gameState.debug.enabled = false;
   gameState.debug.targetSurvivalTimeOverride = null;
+}
+
+
+function resetDebugToNormal() {
+  applyDebugPreset('normal');
 }
 
 function syncStartMenuUi() {
@@ -354,7 +383,7 @@ function renderDebugPresetOptions() {
     optionBtn.className = `debug-preset-btn${isSelected ? ' selected' : ''}`;
     optionBtn.addEventListener('click', () => {
       if (gameState.phase !== 'start') return;
-      applyDebugPresetById(preset.id);
+      applyDebugPreset(preset.id);
       renderDebugPresetOptions();
     });
     debugPresetOptions.appendChild(optionBtn);
@@ -400,6 +429,10 @@ function getEnemySpeedMultiplier() {
   const growth = Number.isFinite(CONFIG.enemy?.speedGrowthPerMinute) ? CONFIG.enemy.speedGrowthPerMinute : 0;
   return Math.max(1, 1 + growth * minutes);
 }
+
+// ==============================
+// Spawning
+// ==============================
 
 function spawnEnemy() {
   const edge = Math.floor(Math.random() * 4);
@@ -533,6 +566,10 @@ function addXp(amount) {
     showLevelUp();
   }
 }
+
+// ==============================
+// Update Systems
+// ==============================
 
 function updatePlayerMovement(dt) {
   const p = gameState.player;
@@ -791,60 +828,65 @@ function updateXpGems(dt) {
   gameState.xpGems = nextGems;
 }
 
-function update(dt) {
-  const phase = gameState.phase;
-  if (phase === 'start' || phase === 'paused' || phase === 'levelup' || phase === 'gameover' || phase === 'clear') return;
+function updateResumeGrace(dt) {
+  gameState.resumeGraceTimer = Math.max(0, gameState.resumeGraceTimer - dt);
+  gameState.runTime += dt;
+  updatePlayerMovement(dt);
+  updateProjectiles(dt);
+  updateParticles(dt);
+  gameState.spawnTimer = getCurrentSpawnInterval();
+  if (gameState.phase === 'ending') updateTododon(dt);
+}
 
-  if (gameState.resumeGraceTimer > 0) {
-    gameState.resumeGraceTimer = Math.max(0, gameState.resumeGraceTimer - dt);
-    gameState.runTime += dt;
-    updatePlayerMovement(dt);
-    updateProjectiles(dt);
-    updateParticles(dt);
-    gameState.spawnTimer = getCurrentSpawnInterval();
-    if (phase === 'ending') {
-      updateTododonEnding(dt);
-    }
-    return;
-  }
-
+function updatePlaying(dt) {
   gameState.runTime += dt;
   updatePlayerMovement(dt);
   updatePlayerAttack(dt);
   updateProjectiles(dt);
   updateXpGems(dt);
   updateParticles(dt);
+  updateEnemies(dt);
 
-  if (phase === 'playing') {
-    updateEnemies(dt);
-  }
+  if (gameState.runTime >= getTargetSurvivalTime()) startEndingEvent();
 
-  const targetTime = getTargetSurvivalTime();
-  if (gameState.phase === 'playing' && gameState.runTime >= targetTime) {
-    startEndingEvent();
-  }
-
-  if (gameState.phase === 'ending') {
-    updateTododonEnding(dt);
-  }
-
-  const canSpawnEnemies = gameState.phase === 'playing';
   gameState.spawnTimer -= dt;
-  if (canSpawnEnemies && gameState.spawnTimer <= 0) {
+  if (gameState.spawnTimer <= 0) {
     const maxEnemies = getCurrentMaxEnemies();
-    const currentEnemyCount = Array.isArray(gameState.enemies) ? gameState.enemies.length : 0;
-    if (currentEnemyCount < maxEnemies) {
-      spawnEnemy();
-    }
+    if ((gameState.enemies || []).length < maxEnemies) spawnEnemy();
     gameState.spawnTimer = getCurrentSpawnInterval();
   }
+  if ((gameState.player?.hp ?? 0) <= 0) showGameOver();
+}
 
-  if ((gameState.phase === 'playing' || gameState.phase === 'ending') && (gameState.player?.hp ?? 0) <= 0) {
-    gameState.phase = 'gameover';
-    finalStats.textContent = `Level ${gameState.level} • Defeated ${gameState.score} enemies • Survived ${gameState.runTime.toFixed(1)}s`;
-    gameOverModal.classList.remove('hidden');
+function updateEnding(dt) {
+  gameState.runTime += dt;
+  updatePlayerMovement(dt);
+  updatePlayerAttack(dt);
+  updateProjectiles(dt);
+  updateXpGems(dt);
+  updateParticles(dt);
+  updateTododon(dt);
+  if ((gameState.player?.hp ?? 0) <= 0) showGameOver();
+}
+
+function update(dt) {
+  switch (gameState.phase) {
+    case 'playing':
+      if (gameState.resumeGraceTimer > 0) updateResumeGrace(dt);
+      else updatePlaying(dt);
+      break;
+    case 'ending':
+      if (gameState.resumeGraceTimer > 0) updateResumeGrace(dt);
+      else updateEnding(dt);
+      break;
+    default:
+      break;
   }
 }
+
+// ==============================
+// Render Systems
+// ==============================
 
 function drawTododon() {
   const tododon = gameState.tododon;
@@ -860,28 +902,36 @@ function drawTododon() {
   ctx.restore();
 }
 
+function drawImageFacing(img, x, y, size, facingX = -1) {
+  if (!img) return;
+  ctx.save();
+  if (facingX === 1) {
+    ctx.translate(x + size / 2, y + size / 2);
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, -size / 2, -size / 2, size, size);
+  } else {
+    ctx.drawImage(img, x, y, size, size);
+  }
+  ctx.restore();
+}
+
 function drawEntityWithFallback(entity, imageResult, fallbackColor) {
+  if (!entity) return;
   const imageScale = CONFIG.visuals.entityImageScale;
   const facingX = entity?.facingX === 1 ? 1 : -1;
+  ctx.save();
   if (imageResult?.ok && imageResult.img) {
-    const s = entity.radius * imageScale;
-    const x = entity.x - s / 2;
-    const y = entity.y - s / 2;
-    ctx.save();
-    if (facingX === 1) {
-      ctx.translate(x + s / 2, y + s / 2);
-      ctx.scale(-1, 1);
-      ctx.drawImage(imageResult.img, -s / 2, -s / 2, s, s);
-    } else {
-      ctx.drawImage(imageResult.img, x, y, s, s);
-    }
-    ctx.restore();
+    const s = (entity.radius ?? 0) * imageScale;
+    const x = (entity.x ?? 0) - s / 2;
+    const y = (entity.y ?? 0) - s / 2;
+    drawImageFacing(imageResult.img, x, y, s, facingX);
   } else {
     ctx.fillStyle = fallbackColor;
     ctx.beginPath();
-    ctx.arc(entity.x, entity.y, entity.radius, 0, Math.PI * 2);
+    ctx.arc(entity.x ?? 0, entity.y ?? 0, entity.radius ?? 0, 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
 }
 
 function drawEntityShadow(entity, color) {
@@ -1021,52 +1071,46 @@ function drawPauseOverlay() {
   ctx.restore();
 }
 
-function render() {
+function drawBackground() {
   ctx.clearRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
   ctx.fillStyle = '#0d1730';
   ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
-
-  const player = gameState.player || null;
+}
+function drawRanges() {
+  const player = gameState.player;
   if (!player) return;
-
   ctx.fillStyle = CONFIG.visuals.pickupRadiusColor;
-  ctx.beginPath();
-  ctx.arc(gameState.player.x, gameState.player.y, gameState.player.pickupRadius || 0, 0, Math.PI * 2);
-  ctx.fill();
-
+  ctx.beginPath(); ctx.arc(player.x, player.y, player.pickupRadius || 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = CONFIG.visuals.magnetRadiusColor;
-  ctx.beginPath();
-  ctx.arc(gameState.player.x, gameState.player.y, gameState.player.magnetRadius || 0, 0, Math.PI * 2);
-  ctx.fill();
-
+  ctx.beginPath(); ctx.arc(player.x, player.y, player.magnetRadius || 0, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = CONFIG.visuals.playerRangeColor;
   ctx.lineWidth = CONFIG.visuals.playerRangeLineWidth;
-  ctx.beginPath();
-  ctx.arc(gameState.player.x, gameState.player.y, gameState.player.attackRange, 0, Math.PI * 2);
-  ctx.stroke();
+  ctx.beginPath(); ctx.arc(player.x, player.y, player.attackRange, 0, Math.PI * 2); ctx.stroke();
+}
+function drawEnemies() { (gameState.enemies || []).forEach(e => { drawEntityShadow(e, CONFIG.visuals.enemyShadowColor); drawEntityWithFallback(e, gameState.images.enemy, '#85ff8a'); drawEnemyHpBar(e); }); }
+function drawPlayer() { if (!gameState.player) return; drawEntityShadow(gameState.player, CONFIG.visuals.playerShadowColor); drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a'); }
+function drawOverlays() {
+  if (gameState.screenDarkness > 0) { ctx.fillStyle = `rgba(0, 0, 0, ${clamp(gameState.screenDarkness, 0, 1)})`; ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height); }
+  drawPauseOverlay();
+}
 
+function render() {
+  drawBackground();
+  if (!gameState.player) return;
+  drawRanges();
   drawXpGems();
   drawParticles();
   drawProjectiles();
-  gameState.enemies.forEach(e => {
-    drawEntityShadow(e, CONFIG.visuals.enemyShadowColor);
-    drawEntityWithFallback(e, gameState.images.enemy, '#85ff8a');
-    drawEnemyHpBar(e);
-  });
-  if ((gameState.phase === 'ending' || gameState.phase === 'clear') && gameState.tododon) {
-    drawTododon();
-  }
-  drawEntityShadow(gameState.player, CONFIG.visuals.playerShadowColor);
-  drawEntityWithFallback(gameState.player, gameState.images.player, '#ff8c4a');
-
-  if (gameState.screenDarkness > 0) {
-    ctx.fillStyle = `rgba(0, 0, 0, ${clamp(gameState.screenDarkness, 0, 1)})`;
-    ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
-  }
-
+  drawEnemies();
+  if ((gameState.phase === 'ending' || gameState.phase === 'clear') && gameState.tododon) drawTododon();
+  drawPlayer();
   drawHud();
-  drawPauseOverlay();
+  drawOverlays();
 }
+
+// ==============================
+// Main Loop
+// ==============================
 
 function loop(ts) {
   const dt = Math.min(0.033, (ts - gameState.time) / 1000 || 0);
@@ -1075,6 +1119,10 @@ function loop(ts) {
   render();
   requestAnimationFrame(loop);
 }
+
+// ==============================
+// Input
+// ==============================
 
 window.addEventListener('keydown', e => {
   const key = e.key;
@@ -1111,9 +1159,13 @@ window.addEventListener('keyup', e => {
   if (BLOCK_KEYS.includes(e.key)) e.preventDefault();
   gameState.keys[e.key] = false;
 });
+// ==============================
+// UI / Modals
+// ==============================
+
 startNormalBtn?.addEventListener('click', () => {
   if (gameState.phase !== 'start') return;
-  applyDebugPresetById('normal');
+  applyDebugPreset('normal');
   startRun();
   startModal?.classList.add('hidden');
   gameOverModal.classList.add('hidden');
@@ -1135,7 +1187,7 @@ debugBackBtn?.addEventListener('click', () => {
 
 startDebugBtn?.addEventListener('click', () => {
   if (gameState.phase !== 'start') return;
-  applyDebugPresetById(gameState?.debug?.selectedPresetId || 'normal');
+  applyDebugPreset(gameState?.debug?.selectedPresetId || 'normal');
   startRun();
   startModal?.classList.add('hidden');
   gameOverModal.classList.add('hidden');
@@ -1157,7 +1209,7 @@ clearRestartBtn?.addEventListener('click', () => {
 
 (async function init() {
   resetState('start');
-  applyDebugPresetById(gameState?.debug?.selectedPresetId || 'normal');
+  applyDebugPreset(gameState?.debug?.selectedPresetId || 'normal');
   syncStartMenuUi();
   renderDebugPresetOptions();
   await preloadImages();
