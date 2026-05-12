@@ -102,19 +102,32 @@ const CONFIG = {
   eventUi: {
     overlayAlpha: 0.2,
     panelWidthRatio: 0.84,
-    panelHeight: 188,
-    panelLeftMargin: 24,
+    panelMaxHeightRatio: 0.42,
+    panelMinHeight: 150,
+    panelSideMargin: 24,
     panelBottomMargin: 20,
     panelBorderRadius: 14,
+    panelPaddingX: 16,
+    panelPaddingTop: 14,
+    panelPaddingBottom: 14,
     speakerFontSize: 24,
+    speakerBottomGap: 10,
     textFontSize: 22,
+    textLineHeight: 30,
+    textBottomGap: 14,
     hintFontSize: 16,
-    choiceHeight: 44,
+    hintLineHeight: 22,
+    choiceFontSize: 20,
+    choiceLineHeight: 26,
+    choiceMinHeight: 44,
     choiceGap: 10,
     choicePaddingX: 14,
-    choiceBlockTop: 94,
-    choiceBlockLeft: 16,
-    resultAdvanceHintY: 166,
+    choicePaddingY: 10,
+    portraitWidth: 116,
+    portraitHeight: 116,
+    portraitInsetX: 14,
+    portraitInsetY: 10,
+    portraitSafeGap: 10,
   },
   ui: {
     maxNumberShortcuts: 9,
@@ -2047,60 +2060,148 @@ function roundRect(context, x, y, w, h, r) {
   context.arcTo(x, y, x + w, y, radius);
   context.closePath();
 }
-function drawMultilineText(text, x, y, maxWidth, lineHeight) {
-  String(text || '').split('\n').forEach((line, idx) => ctx.fillText(line, x, y + lineHeight * idx, maxWidth));
-}
-function drawEventChoiceButtons(panelX, panelY, panelW) {
-  const def = getActiveEventDefinition();
-  if (!def) return;
-  const choices = Array.isArray(def.choices) ? def.choices : [];
-  const ui = CONFIG.eventUi;
-  const buttonW = panelW - ui.choiceBlockLeft * 2;
-  choices.forEach((choice, idx) => {
-    const bx = panelX + ui.choiceBlockLeft;
-    const by = panelY + ui.choiceBlockTop + (ui.choiceHeight + ui.choiceGap) * idx;
-    ctx.fillStyle = 'rgba(29, 58, 92, 0.9)';
-    ctx.strokeStyle = 'rgba(166, 208, 245, 0.95)';
-    ctx.lineWidth = 1.5;
-    roundRect(ctx, bx, by, buttonW, ui.choiceHeight, 10);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = '#ecf6ff';
-    ctx.font = '20px sans-serif';
-    ctx.fillText(`${idx + 1}. ${choice?.label || ''}`, bx + ui.choicePaddingX, by + 28, buttonW - ui.choicePaddingX * 2);
+function wrapTextLines(context, text, maxWidth) {
+  if (!context) return [];
+  const safeText = String(text || '');
+  const width = Number.isFinite(maxWidth) ? Math.max(1, maxWidth) : 1;
+  const rawLines = safeText.split('\n');
+  const out = [];
+  rawLines.forEach(raw => {
+    const words = String(raw || '').split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      out.push('');
+      return;
+    }
+    let current = words[0];
+    for (let i = 1; i < words.length; i += 1) {
+      const candidate = `${current} ${words[i]}`;
+      if (context.measureText(candidate).width <= width) current = candidate;
+      else {
+        out.push(current);
+        current = words[i];
+      }
+    }
+    out.push(current);
   });
+  return out;
+}
+function drawWrappedLines(lines, x, y, maxWidth, lineHeight) {
+  const safeLines = Array.isArray(lines) ? lines : [];
+  safeLines.forEach((line, idx) => ctx.fillText(String(line || ''), x, y + lineHeight * idx, maxWidth));
+}
+function computeEventUiLayout() {
+  const ui = CONFIG.eventUi || {};
+  const def = getActiveEventDefinition();
+  const canvasW = CONFIG.canvas.width;
+  const canvasH = CONFIG.canvas.height;
+  const sideMargin = Number.isFinite(ui.panelSideMargin) ? ui.panelSideMargin : 24;
+  const bottomMargin = Number.isFinite(ui.panelBottomMargin) ? ui.panelBottomMargin : 20;
+  const panelW = clamp(canvasW * (ui.panelWidthRatio || 0.84), 560, canvasW - sideMargin * 2);
+  const panelX = sideMargin;
+  const innerX = panelX + (ui.panelPaddingX || 16);
+  const innerW = Math.max(1, panelW - (ui.panelPaddingX || 16) * 2);
+  const portraitW = Math.max(0, ui.portraitWidth || 0);
+  const portraitH = Math.max(0, ui.portraitHeight || 0);
+  const portraitX = panelX + panelW - portraitW - (ui.portraitInsetX || 0);
+  const portraitY = 0;
+  const portraitSafeEndX = portraitW > 0 ? portraitX - (ui.portraitSafeGap || 0) : panelX + panelW;
+  const textW = Math.max(1, Math.min(innerW, portraitSafeEndX - innerX));
+  const bodyText = gameState?.event?.showingResult ? (gameState?.event?.resultText || '') : (def?.text || '');
+
+  ctx.font = `${ui.textFontSize || 22}px sans-serif`;
+  const bodyLines = wrapTextLines(ctx, bodyText, textW);
+  const bodyLineHeight = ui.textLineHeight || ((ui.textFontSize || 22) + 8);
+
+  const choices = Array.isArray(def?.choices) ? def.choices : [];
+  const choiceRects = [];
+  let choicesContentHeight = 0;
+  if (!gameState?.event?.showingResult) {
+    ctx.font = `${ui.choiceFontSize || 20}px sans-serif`;
+    choices.forEach((choice, idx) => {
+      const label = `${idx + 1}. ${choice?.label || ''}`;
+      const lines = wrapTextLines(ctx, label, Math.max(1, textW - (ui.choicePaddingX || 14) * 2));
+      const lineCount = Math.max(1, lines.length);
+      const minHeight = ui.choiceMinHeight || 44;
+      const buttonH = Math.max(minHeight, lineCount * (ui.choiceLineHeight || 26) + (ui.choicePaddingY || 10) * 2);
+      choiceRects.push({ idx, lines, h: buttonH });
+      choicesContentHeight += buttonH + (idx < choices.length - 1 ? (ui.choiceGap || 10) : 0);
+    });
+  }
+
+  const hintHeight = gameState?.event?.showingResult ? (ui.hintLineHeight || ((ui.hintFontSize || 16) + 6)) : 0;
+  const contentHeight = (ui.panelPaddingTop || 14)
+    + (ui.speakerFontSize || 24)
+    + (ui.speakerBottomGap || 10)
+    + bodyLines.length * bodyLineHeight
+    + (ui.textBottomGap || 14)
+    + (gameState?.event?.showingResult ? hintHeight : choicesContentHeight)
+    + (ui.panelPaddingBottom || 14);
+  const maxPanelH = Math.max(ui.panelMinHeight || 150, canvasH * (ui.panelMaxHeightRatio || 0.42));
+  const panelH = clamp(contentHeight, ui.panelMinHeight || 150, maxPanelH);
+  const panelY = canvasH - panelH - bottomMargin;
+
+  let cursorY = panelY + (ui.panelPaddingTop || 14);
+  const speakerY = cursorY + (ui.speakerFontSize || 24) - 4;
+  cursorY += (ui.speakerFontSize || 24) + (ui.speakerBottomGap || 10);
+  const bodyY = cursorY;
+  cursorY += bodyLines.length * bodyLineHeight + (ui.textBottomGap || 14);
+
+  const availableBottomY = panelY + panelH - (ui.panelPaddingBottom || 14);
+  const preferredEndY = cursorY + (gameState?.event?.showingResult ? hintHeight : choicesContentHeight);
+  const overflow = preferredEndY > availableBottomY;
+  if (overflow && !gameState?.event?.showingResult) {
+    const last = choiceRects[choiceRects.length - 1];
+    if (last) cursorY = Math.min(cursorY, availableBottomY - last.h);
+  }
+  let runY = cursorY;
+  choiceRects.forEach((r, i) => {
+    r.x = innerX;
+    r.y = runY;
+    r.w = textW;
+    runY += r.h + (i < choiceRects.length - 1 ? (ui.choiceGap || 10) : 0);
+    r.visible = r.y + r.h <= availableBottomY + 0.01;
+  });
+
+  return { ui, def, panelX, panelY, panelW, panelH, innerX, textW, speakerY, bodyY, bodyLines, bodyLineHeight, choiceRects, overflow,
+    hintY: Math.min(cursorY + (ui.hintLineHeight || 22) - 4, availableBottomY), portrait: { x: portraitX, y: panelY + (ui.portraitInsetY || 0), w: portraitW, h: portraitH } };
 }
 function drawEventUi() {
   if (gameState.phase !== 'event') return;
-  const def = getActiveEventDefinition();
-  if (!def) return;
-  const ui = CONFIG.eventUi;
-  const panelW = clamp(CONFIG.canvas.width * ui.panelWidthRatio, 560, CONFIG.canvas.width - ui.panelLeftMargin * 2);
-  const panelH = clamp(ui.panelHeight, 150, CONFIG.canvas.height - 40);
-  const panelX = ui.panelLeftMargin;
-  const panelY = CONFIG.canvas.height - panelH - ui.panelBottomMargin;
+  const layout = computeEventUiLayout();
+  if (!layout?.def) return;
+  const { ui } = layout;
   ctx.save();
   ctx.fillStyle = `rgba(0, 0, 0, ${clamp(ui.overlayAlpha, 0, 0.5)})`;
   ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
   ctx.fillStyle = 'rgba(10, 18, 34, 0.82)';
   ctx.strokeStyle = 'rgba(151, 191, 226, 0.9)';
   ctx.lineWidth = 2;
-  roundRect(ctx, panelX, panelY, panelW, panelH, ui.panelBorderRadius);
+  roundRect(ctx, layout.panelX, layout.panelY, layout.panelW, layout.panelH, ui.panelBorderRadius || 14);
   ctx.fill();
   ctx.stroke();
   ctx.fillStyle = '#a8daff';
-  ctx.font = `bold ${ui.speakerFontSize}px sans-serif`;
-  ctx.fillText(def.speaker || '???', panelX + 16, panelY + 32);
+  ctx.font = `bold ${ui.speakerFontSize || 24}px sans-serif`;
+  ctx.fillText(layout.def.speaker || '???', layout.innerX, layout.speakerY, layout.textW);
   ctx.fillStyle = '#fff';
-  ctx.font = `${ui.textFontSize}px sans-serif`;
-  const bodyText = gameState?.event?.showingResult ? (gameState?.event?.resultText || '') : (def.text || '');
-  drawMultilineText(bodyText, panelX + 16, panelY + 62, panelW - 32, ui.textFontSize + 8);
+  ctx.font = `${ui.textFontSize || 22}px sans-serif`;
+  drawWrappedLines(layout.bodyLines, layout.innerX, layout.bodyY, layout.textW, layout.bodyLineHeight);
   if (gameState?.event?.showingResult) {
     ctx.fillStyle = '#d8e8ff';
-    ctx.font = `${ui.hintFontSize}px sans-serif`;
-    ctx.fillText('Enter / Click で続行', panelX + 16, panelY + ui.resultAdvanceHintY);
+    ctx.font = `${ui.hintFontSize || 16}px sans-serif`;
+    ctx.fillText('Enter / Click で続行', layout.innerX, layout.hintY, layout.textW);
   } else {
-    drawEventChoiceButtons(panelX, panelY, panelW);
+    ctx.font = `${ui.choiceFontSize || 20}px sans-serif`;
+    layout.choiceRects.forEach(rect => {
+      if (!rect.visible) return;
+      ctx.fillStyle = 'rgba(29, 58, 92, 0.9)';
+      ctx.strokeStyle = 'rgba(166, 208, 245, 0.95)';
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, rect.x, rect.y, rect.w, rect.h, 10);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#ecf6ff';
+      drawWrappedLines(rect.lines, rect.x + (ui.choicePaddingX || 14), rect.y + (ui.choicePaddingY || 10) + (ui.choiceLineHeight || 26) - 6, rect.w - (ui.choicePaddingX || 14) * 2, ui.choiceLineHeight || 26);
+    });
   }
   ctx.restore();
 }
@@ -2166,9 +2267,11 @@ window.addEventListener('keydown', e => {
 
   if (gameState.phase === 'event') {
     const choicesVisible = !gameState?.event?.showingResult;
-    if (choicesVisible && (key === '1' || key === '2')) {
+    const parsed = Number.parseInt(key, 10);
+    const eventChoices = Array.isArray(getActiveEventDefinition()?.choices) ? getActiveEventDefinition().choices : [];
+    if (choicesVisible && Number.isInteger(parsed) && parsed >= 1 && parsed <= eventChoices.length) {
       e.preventDefault();
-      resolveEventChoice(Number(key) - 1);
+      resolveEventChoice(parsed - 1);
       return;
     }
     if (gameState?.event?.showingResult && (key === 'Enter' || key === ' ')) {
@@ -2281,18 +2384,9 @@ eventModal?.addEventListener('click', e => {
   if (!rect) return;
   const mx = (e.clientX - rect.left) * (CONFIG.canvas.width / rect.width);
   const my = (e.clientY - rect.top) * (CONFIG.canvas.height / rect.height);
-  const ui = CONFIG.eventUi;
-  const panelW = clamp(CONFIG.canvas.width * ui.panelWidthRatio, 560, CONFIG.canvas.width - ui.panelLeftMargin * 2);
-  const panelH = clamp(ui.panelHeight, 150, CONFIG.canvas.height - 40);
-  const panelX = ui.panelLeftMargin;
-  const panelY = CONFIG.canvas.height - panelH - ui.panelBottomMargin;
-  const buttonW = panelW - ui.choiceBlockLeft * 2;
-  const choices = Array.isArray(def.choices) ? def.choices : [];
-  choices.forEach((_, idx) => {
-    const bx = panelX + ui.choiceBlockLeft;
-    const by = panelY + ui.choiceBlockTop + (ui.choiceHeight + ui.choiceGap) * idx;
-    if (mx >= bx && mx <= bx + buttonW && my >= by && my <= by + ui.choiceHeight) resolveEventChoice(idx);
-  });
+  const layout = computeEventUiLayout();
+  const hitRect = Array.isArray(layout?.choiceRects) ? layout.choiceRects.find(rect => rect.visible && mx >= rect.x && mx <= rect.x + rect.w && my >= rect.y && my <= rect.y + rect.h) : null;
+  if (hitRect) resolveEventChoice(hitRect.idx);
 });
 openTododonShopBtn?.addEventListener('click', () => {
   if (!gameState?.meta?.unlockedFlags?.tododonShop) return;
