@@ -1059,17 +1059,115 @@ function getZoneExitUnlockTime(zone) {
   return 30;
 }
 
+function areZoneExitsUnlocked(zone, world) {
+  if (!zone || !world) return false;
+
+  if (world.clearedZones?.[zone.id]) {
+    return true;
+  }
+
+  const unlockTime = getZoneExitUnlockTime(zone);
+  const timer = Number(world.zoneTimer) || 0;
+
+  return timer >= unlockTime;
+}
+
 function getAvailableExitsForZone(zone, world) {
   const exits = zone?.exits && typeof zone.exits === 'object' ? zone.exits : {};
-  const forward = new Set(Array.isArray(zone?.forwardExits) ? zone.forwardExits : []);
-  const isCleared = Boolean(world?.clearedZones?.[zone?.id]);
-  if (isCleared) return { ...exits };
-  const canForward = Boolean(world?.zoneTimer >= Math.max(0, getZoneExitUnlockTime(zone)));
-  const available = {};
-  Object.entries(exits).forEach(([dir, target]) => {
-    if (!forward.has(dir) || canForward) available[dir] = target;
-  });
-  return available;
+  if (!zone || !world) return {};
+  if (world.exitUnlocked !== true) return {};
+  return { ...exits };
+}
+
+function diagnoseExitUnlockMismatch() {
+  const world = gameState.world;
+  const zone = getCurrentZone();
+  if (!world || !zone) return;
+
+  const unlockTime = getZoneExitUnlockTime(zone);
+  const timer = Number(world.zoneTimer) || 0;
+
+  if (
+    CONFIG.debug?.fastExitUnlockEnabled === true &&
+    timer >= unlockTime &&
+    world.exitUnlocked !== true
+  ) {
+    world.exitUnlockMismatchWarnings = world.exitUnlockMismatchWarnings || {};
+    if (world.exitUnlockMismatchWarnings[zone.id]) return;
+
+    world.exitUnlockMismatchWarnings[zone.id] = true;
+
+    console.error('[zone] timer passed unlock time but exitUnlocked is still false', {
+      zoneId: zone.id,
+      timer,
+      unlockTime,
+      exitUnlocked: world.exitUnlocked,
+      cleared: Boolean(world.clearedZones?.[zone.id]),
+      phase: gameState.phase,
+      duelActive: Boolean(gameState.duel?.active),
+      debugLastZoneProgression: world.debugLastZoneProgression
+    });
+  }
+}
+
+function updateZoneProgression(dt) {
+  if (gameState?.phase !== 'playing') return;
+  if (gameState?.duel?.active === true) return;
+
+  const world = gameState.world;
+  const zone = getCurrentZone();
+
+  if (!world || !zone) {
+    console.warn('[zone] missing world or zone during updateZoneProgression', {
+      hasWorld: Boolean(world),
+      zoneId: world?.currentZoneId,
+      zone
+    });
+    return;
+  }
+
+  if (!Number.isFinite(world.zoneTimer)) {
+    world.zoneTimer = 0;
+  }
+
+  const previousTimer = world.zoneTimer;
+  world.zoneTimer += Math.max(0, Number(dt) || 0);
+
+  const wasUnlocked = Boolean(world.exitUnlocked);
+  const shouldUnlock = areZoneExitsUnlocked(zone, world);
+
+  world.exitUnlocked = shouldUnlock;
+  diagnoseExitUnlockMismatch();
+
+  if (!wasUnlocked && shouldUnlock && zone?.id) {
+    world.clearedZones = world.clearedZones || {};
+    world.clearedZones[zone.id] = true;
+
+    setZoneMessage(
+      zone.transitionMessage || '海流が開いた……',
+      CONFIG.world?.messageDuration
+    );
+
+    console.info('[zone] exit unlocked', {
+      zoneId: zone.id,
+      previousTimer,
+      currentTimer: world.zoneTimer,
+      unlockTime: getZoneExitUnlockTime(zone),
+      exitUnlocked: world.exitUnlocked,
+      exits: zone.exits
+    });
+  }
+
+  if (CONFIG.debug?.fastExitUnlockEnabled === true) {
+    world.debugLastZoneProgression = {
+      zoneId: zone.id,
+      previousTimer,
+      currentTimer: world.zoneTimer,
+      unlockTime: getZoneExitUnlockTime(zone),
+      exitUnlocked: world.exitUnlocked,
+      phase: gameState.phase
+    };
+  }
 }
 
 function beginZoneTransition(direction, targetZoneId) {
@@ -1131,7 +1229,8 @@ function completeZoneTransition() {
   world.zoneTimer = 0;
   world.pressure = 0;
   world.transitionReady = false;
-  world.exitUnlocked = false;
+  world.exitUnlocked = areZoneExitsUnlocked(nextZone, world);
+  world.availableExits = getAvailableExitsForZone(nextZone, world);
   world.transitionTimer = 0;
   world.isTransitioning = false;
   world.transitionTargetZone = null;
@@ -1970,7 +2069,7 @@ function updatePlaying(dt) {
   if (!gameState.world || typeof gameState.world !== 'object') return;
   const world = gameState.world;
   const zone = getCurrentZone();
-  world.zoneTimer = Math.max(0, (Number(world.zoneTimer) || 0) + dt);
+  updateZoneProgression(dt);
   world.zoneMessageTimer = Math.max(0, (Number(world.zoneMessageTimer) || 0) - dt);
   world.boundaryMessageCooldown = Math.max(0, (Number(world.boundaryMessageCooldown) || 0) - dt);
   if (!Number.isFinite(world.transitionTimer)) world.transitionTimer = 0;
@@ -1978,19 +2077,6 @@ function updatePlaying(dt) {
   const pressureStart = Math.max(0, Number(zone?.durationBeforePressure) || 0);
   const exitStart = Math.max(pressureStart, getZoneExitUnlockTime(zone));
   world.availableExits = getAvailableExitsForZone(zone, world);
-  if (!world.isTransitioning) {
-    const previousUnlocked = Boolean(world.exitUnlocked);
-    world.exitUnlocked = Object.keys(world.availableExits || {}).some((dir) => (zone?.forwardExits || []).includes(dir));
-    if (!previousUnlocked && world.exitUnlocked) {
-      console.info('[debug] fast exit unlock', {
-        zoneId: zone?.id,
-        timer: world.zoneTimer,
-        unlockTime: getZoneExitUnlockTime(zone),
-        exitUnlocked: world.exitUnlocked,
-        exits: zone?.exits,
-      });
-    }
-  }
   world.pressure = world.zoneTimer <= pressureStart ? 0 : clamp((world.zoneTimer - pressureStart) / Math.max(0.1, exitStart - pressureStart), 0, 1);
   if (zone?.id === 'gaze_lair' && world.exitUnlocked && !world.redLightBossTriggered) {
     setZoneMessage('紅い灯りがこちらを見ている……', CONFIG.world?.messageDuration);
@@ -2421,13 +2507,16 @@ function drawHud() {
   ctx.fillText(`Zone: ${zone?.name || '浅瀬'}`, 26, 182);
   if (CONFIG.debug?.fastExitUnlockEnabled) {
     const unlockTime = getZoneExitUnlockTime(zone);
-    const timer = Number(gameState?.world?.zoneTimer) || 0;
-    const unlocked = Boolean(gameState?.world?.exitUnlocked);
+    const timer = Number(gameState.world?.zoneTimer) || 0;
+    const unlocked = Boolean(gameState.world?.exitUnlocked);
+    const progressionSeen = Boolean(gameState.world?.debugLastZoneProgression);
     ctx.fillStyle = 'rgba(215,236,255,0.8)';
     ctx.font = '12px sans-serif';
-    ctx.fillText(`FAST EXIT DEBUG: exits unlock in ${unlockTime}s`, 26, 202);
-    ctx.fillText(`Zone Timer: ${timer.toFixed(1)} / ${unlockTime.toFixed(1)}`, 26, 218);
-    ctx.fillText(`Exit Unlocked: ${unlocked}`, 26, 234);
+    ctx.fillText('FAST EXIT DEBUG', 26, 202);
+    ctx.fillText(`Zone: ${gameState.world?.currentZoneId || 'unknown'}`, 26, 218);
+    ctx.fillText(`Timer: ${timer.toFixed(1)} / ${unlockTime.toFixed(1)}`, 26, 234);
+    ctx.fillText(`Exit Unlocked: ${unlocked}`, 26, 250);
+    ctx.fillText(`Progression Update Seen: ${progressionSeen ? 'yes' : 'no'}`, 26, 266);
   }
 }
 
