@@ -17,9 +17,20 @@ const CONFIG = {
     castOffsetY: -6,
   },
   enemy: {
-    types: {
+    archetypes: {
       basic: 'basic',
       drifter: 'drifter',
+      charger: 'charger',
+      heavy: 'heavy',
+      support: 'support',
+    },
+    creatureRoles: {
+      crayfish: 'basic',
+      botancho: 'drifter',
+      inoshishi: 'charger',
+      frostfang: 'drifter',
+      golem: 'heavy',
+      shinju: 'support',
     },
     baseRadius: 14,
     baseSpeed: 70,
@@ -42,6 +53,17 @@ const CONFIG = {
     drifterDirectionJitterInterval: 1.8,
     drifterUnlockTime: 45,
     drifterSpawnChance: 0.22,
+    archetypeTuning: {
+      basic: { speedScale: 1, hpScale: 1, aggro: 1, strafe: 0.08 },
+      drifter: { speedScale: 0.94, hpScale: 0.92, aggro: 0.72, strafe: 0.28 },
+      charger: { speedScale: 0.86, hpScale: 1.08, aggro: 0.9, burstCooldown: 2.8, burstDuration: 0.55, burstSpeedScale: 2.2 },
+      heavy: { speedScale: 0.63, hpScale: 1.85, aggro: 0.62, slowAura: 0.18 },
+      support: { speedScale: 0.78, hpScale: 1.2, aggro: 0.3, healPulseInterval: 3.4, healPulseRadius: 110, healPulseAmount: 4 },
+    },
+    fleeHpThreshold: 0.28,
+    fleePressureThreshold: 0.62,
+    fleeSpeedMultiplier: 1.35,
+    maxMoveSpeed: 270,
   },
   projectile: {
     radius: 5,
@@ -93,11 +115,11 @@ const CONFIG = {
     exitIndicatorPulseSpeed: 3.2,
   },
   zones: [
-    { id: 'shallows', name: '浅瀬', durationBeforePressure: 20, durationBeforeExit: 35, enemyTypes: ['basic'], maxEnemies: 14, spawnInterval: 1.4, backgroundColor: '#173457', pressureColor: 'rgba(208,236,255,0.08)', transitionMessage: '海流がかわりはじめた……' },
-    { id: 'kelp', name: '海藻地帯', durationBeforePressure: 18, durationBeforeExit: 34, enemyTypes: ['basic', 'drifter'], maxEnemies: 18, spawnInterval: 1.18, backgroundColor: '#163b3f', pressureColor: 'rgba(122,188,164,0.08)', transitionMessage: '生きものたちが奥へ逃げていく……' },
-    { id: 'carcass', name: '死骸地帯', durationBeforePressure: 17, durationBeforeExit: 32, enemyTypes: ['basic', 'heavy'], maxEnemies: 21, spawnInterval: 1.0, backgroundColor: '#392d37', pressureColor: 'rgba(210,122,112,0.10)', transitionMessage: '腐肉のにおいが濃くなる……' },
-    { id: 'cold_current', name: '寒流', durationBeforePressure: 15, durationBeforeExit: 29, enemyTypes: ['drifter', 'charger'], maxEnemies: 20, spawnInterval: 0.9, backgroundColor: '#0f2742', pressureColor: 'rgba(148,196,255,0.12)', transitionMessage: '冷たい流れがからだを押す……' },
-    { id: 'todo_domain', name: 'トド領域', durationBeforePressure: 12, durationBeforeExit: 24, enemyTypes: ['drifter', 'charger'], maxEnemies: 12, spawnInterval: 1.05, backgroundColor: '#20263a', pressureColor: 'rgba(255,255,255,0.14)', transitionMessage: 'トド王のなわばりが近い……' },
+    { id: 'shallows', name: '浅瀬', durationBeforePressure: 20, durationBeforeExit: 35, enemyPool: ['crayfish', 'botancho'], maxEnemies: 14, spawnInterval: 1.4, backgroundColor: '#173457', pressureColor: 'rgba(208,236,255,0.08)', transitionMessage: '海流がかわりはじめた……' },
+    { id: 'kelp', name: '海藻地帯', durationBeforePressure: 18, durationBeforeExit: 34, enemyPool: ['botancho', 'shinju'], maxEnemies: 18, spawnInterval: 1.18, backgroundColor: '#163b3f', pressureColor: 'rgba(122,188,164,0.08)', transitionMessage: '生きものたちが奥へ逃げていく……' },
+    { id: 'carcass', name: '死骸地帯', durationBeforePressure: 17, durationBeforeExit: 32, enemyPool: ['crayfish', 'inoshishi', 'golem'], maxEnemies: 21, spawnInterval: 1.0, backgroundColor: '#392d37', pressureColor: 'rgba(210,122,112,0.10)', transitionMessage: '腐肉のにおいが濃くなる……' },
+    { id: 'cold_current', name: '寒流', durationBeforePressure: 15, durationBeforeExit: 29, enemyPool: ['frostfang', 'botancho', 'shinju'], maxEnemies: 20, spawnInterval: 0.9, backgroundColor: '#0f2742', pressureColor: 'rgba(148,196,255,0.12)', transitionMessage: '冷たい流れがからだを押す……' },
+    { id: 'todo_domain', name: 'トド領域', durationBeforePressure: 12, durationBeforeExit: 24, enemyPool: ['golem', 'inoshishi', 'shinju'], maxEnemies: 12, spawnInterval: 1.05, backgroundColor: '#20263a', pressureColor: 'rgba(255,255,255,0.14)', transitionMessage: 'トド王のなわばりが近い……' },
   ],
   special: {
     maxEnergy: 100,
@@ -221,9 +243,15 @@ const CONFIG = {
     manualShotLifetime: 1.6,
   },
   assets: {
-    playerImage: 'assets/crayfish.png',
-    enemyImage: 'assets/tododon.png',
-    drifterImage: 'assets/botancho.png',
+    playerImage: 'assets/Crayfish.png',
+    creatures: {
+      crayfish: 'assets/Crayfish.png',
+      botancho: 'assets/botancho.png',
+      inoshishi: 'assets/inoshissi.png',
+      frostfang: 'assets/frostfang.png',
+      golem: 'assets/golem.png',
+      shinju: 'assets/shinju.png',
+    },
   },
   visuals: {
     playerShadowColor: 'rgba(0, 0, 0, 0.35)',
@@ -722,10 +750,11 @@ function loadImage(key, src) {
 }
 
 async function preloadImages() {
+  const creatureAssets = CONFIG.assets?.creatures || {};
+  const creatureEntries = Object.entries(creatureAssets).map(([key, src]) => loadImage(`creature_${key}`, src));
   const results = await Promise.all([
     loadImage('player', CONFIG.assets.playerImage),
-    loadImage('enemy', CONFIG.assets.enemyImage),
-    loadImage('drifter', CONFIG.assets.drifterImage),
+    ...creatureEntries,
   ]);
   results.forEach(r => gameState.images[r.key] = r);
 }
@@ -941,6 +970,11 @@ function getCurrentZone() {
   return zones[idx] || zones[0] || null;
 }
 
+function getEnemyArchetypeId(archetypeKey) {
+  const archetypes = CONFIG.enemy?.archetypes || {};
+  return archetypes[archetypeKey] || archetypes.basic || 'basic';
+}
+
 function getZoneSpawnInterval() {
   const zone = getCurrentZone();
   const base = Number(zone?.spawnInterval);
@@ -982,29 +1016,32 @@ function spawnEnemy() {
   const speedMultiplier = getEnemySpeedMultiplier();
   const baseHp = Number.isFinite(CONFIG.enemy.baseHp) ? CONFIG.enemy.baseHp : 1;
   const hp = baseHp * hpMultiplier;
-  const enemyTypes = CONFIG.enemy?.types || {};
-  const basicType = enemyTypes.basic || 'basic';
-  const drifterType = enemyTypes.drifter || 'drifter';
   const zone = getCurrentZone();
-  const zoneTypes = Array.isArray(zone?.enemyTypes) && zone.enemyTypes.length > 0 ? zone.enemyTypes : [basicType];
-  const requestedType = zoneTypes[Math.floor(Math.random() * zoneTypes.length)] || basicType;
-  const type = enemyTypes[requestedType] || (requestedType === drifterType ? drifterType : basicType);
-  const drifterSpeedMultiplier = Number.isFinite(CONFIG.enemy?.drifterSpeedMultiplier) ? CONFIG.enemy.drifterSpeedMultiplier : 1;
-  const speedScale = type === drifterType ? drifterSpeedMultiplier : 1;
+  const zoneCreatures = Array.isArray(zone?.enemyPool) && zone.enemyPool.length > 0 ? zone.enemyPool : ['crayfish'];
+  const creatureId = zoneCreatures[Math.floor(Math.random() * zoneCreatures.length)] || 'crayfish';
+  const requestedArchetypeKey = CONFIG.enemy?.creatureRoles?.[creatureId] || 'basic';
+  const archetype = getEnemyArchetypeId(requestedArchetypeKey);
+  const tuning = CONFIG.enemy?.archetypeTuning?.[archetype] || CONFIG.enemy?.archetypeTuning?.basic || {};
+  const speedScale = Number.isFinite(tuning.speedScale) ? tuning.speedScale : 1;
+  const hpScale = Number.isFinite(tuning.hpScale) ? tuning.hpScale : 1;
 
   gameState.enemies.push({
     id: gameState.nextEnemyId++,
-    type,
+    archetype,
+    creatureId,
     x, y,
     radius: CONFIG.enemy.baseRadius,
     speed: (Number.isFinite(CONFIG.enemy.baseSpeed) ? CONFIG.enemy.baseSpeed : 0) * speedMultiplier * speedScale,
-    hp,
-    maxHp: hp,
+    hp: hp * hpScale,
+    maxHp: hp * hpScale,
     knockbackX: 0,
     knockbackY: 0,
     facingX: -1,
     driftDirection: Math.random() < 0.5 ? -1 : 1,
     driftTimer: rand(0.2, Number.isFinite(CONFIG.enemy?.drifterDirectionJitterInterval) ? CONFIG.enemy.drifterDirectionJitterInterval : 1.8),
+    chargeTimer: rand(0.3, 1.4),
+    chargeBurstTimer: 0,
+    supportPulseTimer: rand(0.6, 2.4),
   });
 }
 
@@ -1455,9 +1492,15 @@ function updateEnemies(dt) {
     const d = Math.hypot(dx, dy) || 1;
     const forwardX = dx / d;
     const forwardY = dy / d;
-    const enemyTypes = CONFIG.enemy?.types || {};
-    const drifterType = enemyTypes.drifter || 'drifter';
-    const isDrifter = enemy.type === drifterType;
+    const archetypes = CONFIG.enemy?.archetypes || {};
+    const drifterType = archetypes.drifter || 'drifter';
+    const chargerType = archetypes.charger || 'charger';
+    const heavyType = archetypes.heavy || 'heavy';
+    const supportType = archetypes.support || 'support';
+    const isDrifter = enemy.archetype === drifterType;
+    const isCharger = enemy.archetype === chargerType;
+    const isHeavy = enemy.archetype === heavyType;
+    const isSupport = enemy.archetype === supportType;
     let moveDirX = forwardX;
     let moveDirY = forwardY;
 
@@ -1478,11 +1521,51 @@ function updateEnemies(dt) {
       moveDirX /= moveLen;
       moveDirY /= moveLen;
     }
+    if (!isEnding && isCharger) {
+      const tuning = CONFIG.enemy?.archetypeTuning?.[chargerType] || {};
+      enemy.chargeTimer = (Number(enemy.chargeTimer) || 0) - dt;
+      enemy.chargeBurstTimer = Math.max(0, (Number(enemy.chargeBurstTimer) || 0) - dt);
+      if (enemy.chargeTimer <= 0) {
+        enemy.chargeTimer = Number(tuning.burstCooldown) || 2.8;
+        enemy.chargeBurstTimer = Number(tuning.burstDuration) || 0.55;
+      }
+      if (enemy.chargeBurstTimer > 0) {
+        const burstScale = Number(tuning.burstSpeedScale) || 2.2;
+        moveDirX *= burstScale;
+        moveDirY *= burstScale;
+      }
+    }
+    if (!isEnding && isSupport) {
+      enemy.supportPulseTimer = (Number(enemy.supportPulseTimer) || 0) - dt;
+      if (enemy.supportPulseTimer <= 0) {
+        const t = CONFIG.enemy?.archetypeTuning?.[supportType] || {};
+        const pulseRadius = Number(t.healPulseRadius) || 110;
+        const pulseAmount = Number(t.healPulseAmount) || 4;
+        gameState.enemies.forEach(other => {
+          if (!other || other === enemy) return;
+          if (distance(enemy, other) > pulseRadius) return;
+          const maxHp = Number(other.maxHp) || 1;
+          other.hp = clamp((Number(other.hp) || 0) + pulseAmount, 0, maxHp);
+        });
+        enemy.supportPulseTimer = Number(t.healPulseInterval) || 3.4;
+      }
+    }
 
     if (moveDirX < -0.001) enemy.facingX = -1;
     else if (moveDirX > 0.001) enemy.facingX = 1;
-    enemy.x = (enemy.x ?? 0) + moveDirX * (enemy.speed ?? 0) * dt;
-    enemy.y = (enemy.y ?? 0) + moveDirY * (enemy.speed ?? 0) * dt;
+    let speed = Number(enemy.speed) || 0;
+    if (isHeavy) speed *= 0.9;
+    if (!isEnding && Number(gameState?.world?.pressure) >= (Number(CONFIG.enemy?.fleePressureThreshold) || 0.62) && (isSupport || isDrifter)) {
+      moveDirX *= -1;
+      moveDirY *= -1;
+      speed *= Number(CONFIG.enemy?.fleeSpeedMultiplier) || 1.35;
+    } else if (!isEnding && (Number(enemy.hp) || 0) <= (Number(enemy.maxHp) || 1) * (Number(CONFIG.enemy?.fleeHpThreshold) || 0.28) && !isHeavy) {
+      moveDirX *= -1;
+      moveDirY *= -1;
+    }
+    speed = clamp(speed, 0, Number(CONFIG.enemy?.maxMoveSpeed) || 270);
+    enemy.x = (enemy.x ?? 0) + moveDirX * speed * dt;
+    enemy.y = (enemy.y ?? 0) + moveDirY * speed * dt;
 
     enemy.knockbackX = enemy.knockbackX ?? 0;
     enemy.knockbackY = enemy.knockbackY ?? 0;
@@ -2202,12 +2285,13 @@ function drawRanges() {
   drawTododonWaveRange();
 }
 function drawEnemies() {
-  const enemyTypes = CONFIG.enemy?.types || {};
-  const drifterType = enemyTypes.drifter || 'drifter';
+  const archetypes = CONFIG.enemy?.archetypes || {};
+  const drifterType = archetypes.drifter || 'drifter';
   (gameState.enemies || []).forEach(e => {
     drawEntityShadow(e, CONFIG.visuals.enemyShadowColor);
-    const isDrifter = e?.type === drifterType;
-    drawEntityWithFallback(e, isDrifter ? gameState.images.drifter : gameState.images.enemy, isDrifter ? '#96c9ff' : '#85ff8a');
+    const isDrifter = e?.archetype === drifterType;
+    const key = `creature_${e?.creatureId || 'crayfish'}`;
+    drawEntityWithFallback(e, gameState.images[key], isDrifter ? '#96c9ff' : '#85ff8a');
     if (isDrifter) {
       ctx.save();
       ctx.strokeStyle = 'rgba(150, 201, 255, 0.55)';
