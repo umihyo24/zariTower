@@ -80,6 +80,25 @@ const CONFIG = {
     targetSurvivalTime: 300,
     endEventDarknessAlpha: 0.35,
   },
+  world: {
+    transitionDuration: 1.2,
+    transitionOverlayAlpha: 0.4,
+    messageDuration: 3.4,
+    boundaryMessageDuration: 2.2,
+    boundaryMessageCooldown: 1.1,
+    boundaryPushback: 22,
+    pressureSpawnRateMultiplier: 0.7,
+    pressureEnemyBonus: 3,
+    exitIndicatorWidth: 36,
+    exitIndicatorPulseSpeed: 3.2,
+  },
+  zones: [
+    { id: 'shallows', name: '浅瀬', durationBeforePressure: 20, durationBeforeExit: 35, enemyTypes: ['basic'], maxEnemies: 14, spawnInterval: 1.4, backgroundColor: '#173457', pressureColor: 'rgba(208,236,255,0.08)', transitionMessage: '海流がかわりはじめた……' },
+    { id: 'kelp', name: '海藻地帯', durationBeforePressure: 18, durationBeforeExit: 34, enemyTypes: ['basic', 'drifter'], maxEnemies: 18, spawnInterval: 1.18, backgroundColor: '#163b3f', pressureColor: 'rgba(122,188,164,0.08)', transitionMessage: '生きものたちが奥へ逃げていく……' },
+    { id: 'carcass', name: '死骸地帯', durationBeforePressure: 17, durationBeforeExit: 32, enemyTypes: ['basic', 'heavy'], maxEnemies: 21, spawnInterval: 1.0, backgroundColor: '#392d37', pressureColor: 'rgba(210,122,112,0.10)', transitionMessage: '腐肉のにおいが濃くなる……' },
+    { id: 'cold_current', name: '寒流', durationBeforePressure: 15, durationBeforeExit: 29, enemyTypes: ['drifter', 'charger'], maxEnemies: 20, spawnInterval: 0.9, backgroundColor: '#0f2742', pressureColor: 'rgba(148,196,255,0.12)', transitionMessage: '冷たい流れがからだを押す……' },
+    { id: 'todo_domain', name: 'トド領域', durationBeforePressure: 12, durationBeforeExit: 24, enemyTypes: ['drifter', 'charger'], maxEnemies: 12, spawnInterval: 1.05, backgroundColor: '#20263a', pressureColor: 'rgba(255,255,255,0.14)', transitionMessage: 'トド王のなわばりが近い……' },
+  ],
   special: {
     maxEnergy: 100,
     energyRegenPerSecond: 14,
@@ -241,6 +260,20 @@ const CONFIG = {
     rangeVisibilityDuration: 3.0,
     rangeFadeDuration: 0.6,
   },
+  world: {
+    zoneIndex: 0,
+    zoneTimer: 0,
+    pressure: 0,
+    transitionReady: false,
+    transitionTimer: 0,
+    transitionDirection: 'right',
+    zoneMessage: '',
+    zoneMessageTimer: 0,
+    tododonEncounterTriggered: false,
+    boundaryMessage: '',
+    boundaryMessageTimer: 0,
+    boundaryMessageCooldown: 0,
+  },
 };
 
 const gameState = {
@@ -376,6 +409,10 @@ function resetState(nextPhase = gameState.phase || 'start') {
     manualShots: [],
     input: { manualFirePressed: false, manualFireHeld: false },
     rangeVisibility: { visible: false, timer: 0 },
+    world: {
+      zoneIndex: 0, zoneTimer: 0, pressure: 0, transitionReady: false, transitionTimer: 0, transitionDirection: 'right',
+      zoneMessage: '', zoneMessageTimer: 0, tododonEncounterTriggered: false, boundaryMessage: '', boundaryMessageTimer: 0, boundaryMessageCooldown: 0, _transitionWasActive: false,
+    },
     runCoinsEarned: 0, runCompleted: false,
     player: {
       x: CONFIG.canvas.width / 2,
@@ -427,6 +464,7 @@ function startRun() {
   resetState('playing');
   gameState.debug = preservedDebug;
   gameState.startUi.debugMenuOpen = false;
+  setZoneMessage(getCurrentZone()?.transitionMessage || '海流がかわりはじめた……', CONFIG.world?.messageDuration);
 }
 
 function startEndingEvent() {
@@ -437,7 +475,7 @@ function startEndingEvent() {
   const darknessStart = Number.isFinite(CONFIG.tododon?.darknessStartAlpha) ? CONFIG.tododon.darknessStartAlpha : 0;
   gameState.phase = 'ending';
   gameState.endingStarted = true;
-  gameState.spawnTimer = getCurrentSpawnInterval();
+  gameState.spawnTimer = getZoneSpawnInterval();
   if (!gameState.tododon) {
     gameState.tododon = {
       x: CONFIG.canvas.width + radius * 0.65 + offset * 0.3,
@@ -893,6 +931,40 @@ function getEnemySpeedMultiplier() {
   return Math.max(1, 1 + growth * minutes);
 }
 
+function getSafeZones() {
+  return Array.isArray(CONFIG.zones) && CONFIG.zones.length > 0 ? CONFIG.zones : [];
+}
+
+function getCurrentZone() {
+  const zones = getSafeZones();
+  const idx = Math.floor(Number(gameState?.world?.zoneIndex) || 0);
+  return zones[idx] || zones[0] || null;
+}
+
+function getZoneSpawnInterval() {
+  const zone = getCurrentZone();
+  const base = Number(zone?.spawnInterval);
+  const fallback = getCurrentSpawnInterval();
+  const safeBase = Number.isFinite(base) && base > 0 ? base : fallback;
+  const pressure = clamp(Number(gameState?.world?.pressure) || 0, 0, 1);
+  const multiplier = Number.isFinite(CONFIG.world?.pressureSpawnRateMultiplier) ? CONFIG.world.pressureSpawnRateMultiplier : 0.7;
+  return safeBase * (1 - pressure * clamp(multiplier, 0, 0.95));
+}
+
+function getZoneMaxEnemies() {
+  const zone = getCurrentZone();
+  const base = Math.max(1, Math.floor(Number(zone?.maxEnemies) || getCurrentMaxEnemies()));
+  const pressure = clamp(Number(gameState?.world?.pressure) || 0, 0, 1);
+  const bonus = Math.max(0, Math.floor(Number(CONFIG.world?.pressureEnemyBonus) || 0));
+  return base + Math.floor(bonus * pressure);
+}
+
+function setZoneMessage(text, duration) {
+  if (!gameState.world) return;
+  gameState.world.zoneMessage = String(text || '');
+  gameState.world.zoneMessageTimer = Math.max(0, Number(duration) || 0);
+}
+
 // ==============================
 // Spawning
 // ==============================
@@ -913,10 +985,10 @@ function spawnEnemy() {
   const enemyTypes = CONFIG.enemy?.types || {};
   const basicType = enemyTypes.basic || 'basic';
   const drifterType = enemyTypes.drifter || 'drifter';
-  const drifterUnlockTime = Number.isFinite(CONFIG.enemy?.drifterUnlockTime) ? CONFIG.enemy.drifterUnlockTime : 45;
-  const drifterSpawnChance = Number.isFinite(CONFIG.enemy?.drifterSpawnChance) ? CONFIG.enemy.drifterSpawnChance : 0;
-  const canSpawnDrifter = gameState.runTime >= drifterUnlockTime && Math.random() < clamp(drifterSpawnChance, 0, 1);
-  const type = canSpawnDrifter ? drifterType : basicType;
+  const zone = getCurrentZone();
+  const zoneTypes = Array.isArray(zone?.enemyTypes) && zone.enemyTypes.length > 0 ? zone.enemyTypes : [basicType];
+  const requestedType = zoneTypes[Math.floor(Math.random() * zoneTypes.length)] || basicType;
+  const type = enemyTypes[requestedType] || (requestedType === drifterType ? drifterType : basicType);
   const drifterSpeedMultiplier = Number.isFinite(CONFIG.enemy?.drifterSpeedMultiplier) ? CONFIG.enemy.drifterSpeedMultiplier : 1;
   const speedScale = type === drifterType ? drifterSpeedMultiplier : 1;
 
@@ -1087,10 +1159,22 @@ function updatePlayerMovement(dt) {
   else if (xMove > 0) p.facingX = 1;
 
   const mag = Math.hypot(xMove, yMove) || 1;
+  const prevX = p.x;
   p.x += (xMove / mag) * p.speed * dt;
   p.y += (yMove / mag) * p.speed * dt;
   p.x = clamp(p.x, p.radius, CONFIG.canvas.width - p.radius);
   p.y = clamp(p.y, p.radius, CONFIG.canvas.height - p.radius);
+  const world = gameState.world;
+  if (world && p.x <= p.radius + 0.01 && prevX !== p.x && world.boundaryMessageCooldown <= 0) {
+    const pushback = Number.isFinite(CONFIG.world?.boundaryPushback) ? CONFIG.world.boundaryPushback : 0;
+    p.x = clamp(p.x + pushback * dt, p.radius, CONFIG.canvas.width - p.radius);
+    setZoneMessage('トド王のなわばりからはにげられない……', CONFIG.world?.boundaryMessageDuration);
+    world.boundaryMessageCooldown = Math.max(0, Number(CONFIG.world?.boundaryMessageCooldown) || 0);
+  }
+  if (world && world.transitionReady && p.x >= CONFIG.canvas.width - p.radius - 2 && world.transitionTimer <= 0) {
+    world.transitionTimer = Math.max(0, Number(CONFIG.world?.transitionDuration) || 0);
+    world.transitionReady = false;
+  }
 }
 
 function updatePlayerAttack(dt) {
@@ -1526,6 +1610,17 @@ function updateResumeGrace(dt) {
 
 function updatePlaying(dt) {
   gameState.runTime += dt;
+  if (!gameState.world || typeof gameState.world !== 'object') return;
+  const world = gameState.world;
+  const zone = getCurrentZone();
+  world.zoneTimer = Math.max(0, (Number(world.zoneTimer) || 0) + dt);
+  world.zoneMessageTimer = Math.max(0, (Number(world.zoneMessageTimer) || 0) - dt);
+  world.boundaryMessageCooldown = Math.max(0, (Number(world.boundaryMessageCooldown) || 0) - dt);
+  world.transitionTimer = Math.max(0, (Number(world.transitionTimer) || 0) - dt);
+  const pressureStart = Math.max(0, Number(zone?.durationBeforePressure) || 0);
+  const exitStart = Math.max(pressureStart, Number(zone?.durationBeforeExit) || pressureStart);
+  world.transitionReady = world.zoneTimer >= exitStart;
+  world.pressure = world.zoneTimer <= pressureStart ? 0 : clamp((world.zoneTimer - pressureStart) / Math.max(0.1, exitStart - pressureStart), 0, 1);
   updatePlayerMovement(dt);
   updatePlayerAttack(dt);
   updateTododonWave(dt);
@@ -1534,16 +1629,38 @@ function updatePlaying(dt) {
   updateParticles(dt);
   updateEnemies(dt);
 
-  if (gameState.phase === 'playing' && gameState.runTime >= getTargetSurvivalTime()) {
-    startEndingEvent();
-    return;
+  if (world.transitionTimer <= 0 && world._transitionWasActive) {
+    world._transitionWasActive = false;
+    const zones = getSafeZones();
+    const lastZoneIndex = Math.max(0, zones.length - 1);
+    if (world.zoneIndex >= lastZoneIndex) {
+      if (!world.tododonEncounterTriggered) {
+        world.tododonEncounterTriggered = true;
+        startEndingEvent();
+        return;
+      }
+    } else {
+      world.zoneIndex = clamp(world.zoneIndex + 1, 0, lastZoneIndex);
+      world.zoneTimer = 0;
+      world.pressure = 0;
+      world.transitionReady = false;
+      gameState.enemies = [];
+      gameState.projectiles = [];
+      gameState.xpGems = [];
+      const p = gameState.player;
+      p.x = clamp(CONFIG.canvas.width * 0.28, p.radius, CONFIG.canvas.width - p.radius);
+      p.y = clamp(CONFIG.canvas.height * 0.5, p.radius, CONFIG.canvas.height - p.radius);
+      setZoneMessage(getCurrentZone()?.transitionMessage, CONFIG.world?.messageDuration);
+    }
+  } else if (world.transitionTimer > 0) {
+    world._transitionWasActive = true;
   }
 
   gameState.spawnTimer -= dt;
   if (gameState.spawnTimer <= 0) {
-    const maxEnemies = getCurrentMaxEnemies();
+    const maxEnemies = getZoneMaxEnemies();
     if ((gameState.enemies || []).length < maxEnemies) spawnEnemy();
-    gameState.spawnTimer = getCurrentSpawnInterval();
+    gameState.spawnTimer = getZoneSpawnInterval();
   }
   if ((gameState.player?.hp ?? 0) <= 0) showGameOver();
 }
@@ -1877,7 +1994,7 @@ function drawHud() {
   ctx.fillText(`HP: ${Math.ceil(p.hp)} / ${p.maxHp}`, 26, 36);
   ctx.fillText(`Level: ${gameState.level}`, 26, 54);
   ctx.fillText(`Kills: ${gameState.score}`, 26, 72);
-  ctx.fillText(`Enemies: ${(gameState.enemies || []).length}/${getCurrentMaxEnemies()}`, 26, 90);
+  ctx.fillText(`Enemies: ${(gameState.enemies || []).length}/${getZoneMaxEnemies()}`, 26, 90);
   ctx.fillText(`Time: ${formatTime(gameState.runTime)}`, 26, 108);
   ctx.fillText(`Goal: ${formatTime(getTargetSurvivalTime())}`, 26, 126);
   const maxEnergy = Number.isFinite(p.maxSpecialEnergy) ? p.maxSpecialEnergy : 1;
@@ -1916,6 +2033,9 @@ function drawHud() {
     ctx.lineWidth = 1.5;
     ctx.strokeRect(22, 132, 116, 18);
   }
+  const zone = getCurrentZone();
+  ctx.fillStyle = '#d7ecff';
+  ctx.fillText(`Zone: ${zone?.name || '浅瀬'}`, 26, 182);
 }
 
 
@@ -1937,8 +2057,40 @@ function drawPauseOverlay() {
 
 function drawBackground() {
   ctx.clearRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
-  ctx.fillStyle = '#0d1730';
+  const zone = getCurrentZone();
+  ctx.fillStyle = zone?.backgroundColor || '#0d1730';
   ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+  const pressure = clamp(Number(gameState?.world?.pressure) || 0, 0, 1);
+  if (pressure > 0) {
+    ctx.globalAlpha = pressure;
+    ctx.fillStyle = zone?.pressureColor || 'rgba(255,255,255,0.08)';
+    ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+    ctx.globalAlpha = 1;
+  }
+}
+function drawZoneGuidance() {
+  const world = gameState?.world;
+  if (!world) return;
+  if (world.transitionReady) {
+    const width = Number.isFinite(CONFIG.world?.exitIndicatorWidth) ? CONFIG.world.exitIndicatorWidth : 32;
+    const pulse = 0.3 + 0.3 * (1 + Math.sin((gameState.time / 1000) * (CONFIG.world?.exitIndicatorPulseSpeed || 3.2))) * 0.5;
+    ctx.fillStyle = `rgba(180,220,255,${pulse})`;
+    ctx.fillRect(CONFIG.canvas.width - width, 0, width, CONFIG.canvas.height);
+  }
+  if ((world.zoneMessageTimer || 0) > 0 && world.zoneMessage) {
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(226,242,255,0.94)';
+    ctx.font = '20px sans-serif';
+    ctx.fillText(world.zoneMessage, CONFIG.canvas.width * 0.5, CONFIG.canvas.height - 26);
+    ctx.restore();
+  }
+  if ((world.transitionTimer || 0) > 0) {
+    const maxDuration = Math.max(0.01, Number(CONFIG.world?.transitionDuration) || 1.2);
+    const alpha = clamp((world.transitionTimer / maxDuration) * (Number(CONFIG.world?.transitionOverlayAlpha) || 0.4), 0, 1);
+    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+    ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+  }
 }
 function getRangeVisibilityAlpha() {
   const visibility = gameState?.rangeVisibility;
@@ -2259,6 +2411,7 @@ function render() {
   if ((gameState.phase === 'ending' || gameState.phase === 'event' || gameState.phase === 'clear') && gameState.tododon) drawTododon();
   drawPlayer();
   drawHud();
+  drawZoneGuidance();
   drawDuelBossHpBar();
   if (gameState.phase === 'duel') drawBossActionText();
   if (gameState.phase !== 'ending') drawOverlays();
