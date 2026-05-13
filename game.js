@@ -253,6 +253,9 @@ const CONFIG = {
       golem: 'assets/golem.png',
       shinju: 'assets/shinju.png',
     },
+    bosses: {
+      tododon: 'assets/tododon.png',
+    },
   },
   visuals: {
     playerShadowColor: 'rgba(0, 0, 0, 0.35)',
@@ -756,12 +759,21 @@ function loadImage(key, src) {
 
 async function preloadImages() {
   const creatureAssets = CONFIG.assets?.creatures || {};
+  const bossAssets = CONFIG.assets?.bosses || {};
   const creatureEntries = Object.entries(creatureAssets).map(([key, src]) => loadImage(`creature_${key}`, src));
+  const bossEntries = Object.entries(bossAssets).map(([key, src]) => loadImage(`boss_${key}`, src));
   const results = await Promise.all([
     loadImage('player', CONFIG.assets.playerImage),
     ...creatureEntries,
+    ...bossEntries,
   ]);
   results.forEach(r => gameState.images[r.key] = r);
+  Object.entries(bossAssets).forEach(([key, src]) => {
+    const result = gameState.images[`boss_${key}`];
+    if (!result?.ok) {
+      console.warn(`[assets] boss image failed to load: ${key} (${src})`);
+    }
+  });
 }
 
 // ==============================
@@ -774,6 +786,15 @@ function distance(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 function degToRad(deg) { return deg * Math.PI / 180; }
 function isFiniteNumber(value) { return Number.isFinite(value); }
 
+function isUsableImageResult(imageResult) {
+  return Boolean(imageResult?.ok && imageResult?.img && imageResult.img.complete && imageResult.img.naturalWidth > 0 && imageResult.img.naturalHeight > 0);
+}
+
+function getBossImage(id) {
+  if (!id) return null;
+  const result = gameState.images?.[`boss_${id}`];
+  return isUsableImageResult(result) ? result : null;
+}
 
 
 function getCurrentAttackConeDegrees() {
@@ -1944,12 +1965,12 @@ function update(dt) {
 function drawTododon() {
   const tododon = gameState.tododon;
   if (!tododon) return;
-  const imageResult = gameState.images?.enemy;
+  const imageResult = getBossImage('tododon');
   ctx.save();
   ctx.globalAlpha = 0.96;
   drawEntityShadow(tododon, 'rgba(0, 0, 0, 0.45)');
   drawEntityWithFallback(tododon, imageResult, CONFIG.tododon.color);
-  if (!imageResult?.ok || !imageResult?.img) {
+  if (!imageResult) {
     ctx.globalAlpha = 0.88;
     ctx.fillStyle = 'rgba(18, 28, 38, 0.82)';
     ctx.beginPath();
@@ -1972,7 +1993,7 @@ function drawTododon() {
 }
 
 function drawImageFacing(img, x, y, size, facingX = -1) {
-  if (!img) return;
+  if (!img || !Number.isFinite(size) || size <= 0 || !Number.isFinite(x) || !Number.isFinite(y)) return;
   ctx.save();
   if (facingX === 1) {
     ctx.translate(x + size / 2, y + size / 2);
@@ -1989,11 +2010,17 @@ function drawEntityWithFallback(entity, imageResult, fallbackColor) {
   const imageScale = CONFIG.visuals.entityImageScale;
   const facingX = entity?.facingX === 1 ? 1 : -1;
   ctx.save();
-  if (imageResult?.ok && imageResult.img) {
+  if (isUsableImageResult(imageResult)) {
     const s = (entity.radius ?? 0) * imageScale;
     const x = (entity.x ?? 0) - s / 2;
     const y = (entity.y ?? 0) - s / 2;
-    drawImageFacing(imageResult.img, x, y, s, facingX);
+    if (Number.isFinite(s) && s > 0 && Number.isFinite(x) && Number.isFinite(y)) drawImageFacing(imageResult.img, x, y, s, facingX);
+    else {
+      ctx.fillStyle = fallbackColor;
+      ctx.beginPath();
+      ctx.arc(entity.x ?? 0, entity.y ?? 0, entity.radius ?? 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
   } else {
     ctx.fillStyle = fallbackColor;
     ctx.beginPath();
@@ -2125,7 +2152,12 @@ function drawDuelTododon() {
   t.radius = targetR;
   t.x = CONFIG.canvas.width - targetR + rightOffset - targetR * (t.advanceLevel || 0) * 0.25;
   drawEntityShadow(t, 'rgba(0,0,0,0.45)');
-  drawEntityWithFallback(t, gameState.images?.enemy, '#4f6f8e');
+  const tododonImage = getBossImage('tododon');
+  if (!tododonImage && !t.missingImageWarned) {
+    console.warn('[render] duel Tododon image unavailable, using fallback shape.');
+    t.missingImageWarned = true;
+  }
+  drawEntityWithFallback(t, tododonImage, '#4f6f8e');
   if (t.cannon?.warning || t.cannon?.active) { ctx.save(); ctx.fillStyle = t.cannon.warning ? 'rgba(255,190,120,0.22)' : 'rgba(255,110,80,0.45)'; ctx.fillRect(0, (t.cannon.y || 0) - (c.cannonWidth || 86) / 2, CONFIG.canvas.width, c.cannonWidth || 86); ctx.restore(); }
 }
 function drawBossActionText() { const t = gameState?.duel?.tododon; if (!t || !t.actionText) return; const w = CONFIG.canvas.width - 120; const h = 38; const x = 60; const y = CONFIG.canvas.height - 60; const alpha = t.actionTextTimer < 0.3 ? clamp(t.actionTextTimer / 0.3, 0, 1) : 1; ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = 'rgba(8,14,24,0.58)'; ctx.fillRect(x, y, w, h); ctx.strokeStyle = 'rgba(220,236,255,0.35)'; ctx.strokeRect(x, y, w, h); ctx.fillStyle = '#ecf6ff'; ctx.font = '18px sans-serif'; ctx.fillText(t.actionText, x + 16, y + 25); ctx.restore(); }
