@@ -1193,11 +1193,6 @@ function updateZoneProgression(dt) {
     world.clearedZones = world.clearedZones || {};
     world.clearedZones[zone.id] = true;
 
-    setZoneMessage(
-      zone.transitionMessage || '海流が開いた……',
-      CONFIG.world?.messageDuration
-    );
-
     console.info('[zone] exit unlocked', {
       zoneId: zone.id,
       previousTimer,
@@ -1305,7 +1300,6 @@ function completeZoneTransition() {
   gameState.enemies = [];
   gameState.projectiles = [];
   gameState.xpGems = [];
-  setZoneMessage(getCurrentZone()?.transitionMessage, CONFIG.world?.messageDuration);
   console.info(`[zone] complete transition to ${nextZone.id}`);
 }
 
