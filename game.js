@@ -121,6 +121,7 @@ const CONFIG = {
   world: {
     transitionDuration: 1.2,
     transitionOverlayAlpha: 0.4,
+    zoneTransitionCooldown: 0.18,
     messageDuration: 3.4,
     boundaryMessageDuration: 2.2,
     boundaryMessageCooldown: 1.1,
@@ -327,6 +328,7 @@ const CONFIG = {
     isTransitioning: false,
     transitionDirection: null,
     transitionTargetZone: null,
+    zoneTransitionCooldownTimer: 0,
     zoneMessage: '',
     zoneMessageTimer: 0,
     tododonEncounterTriggered: false,
@@ -1218,21 +1220,126 @@ function updateZoneProgression(dt) {
   world.debugZoneTimerAfterZoneProgression = world.zoneTimer;
 }
 
+function isBossGateTarget(targetZoneId) {
+  return (
+    targetZoneId === 'tododon_gate'
+    || targetZoneId === 'tododon_duel'
+    || targetZoneId === 'red_light_gate'
+    || targetZoneId === 'red_light_duel'
+  );
+}
+
+function repositionPlayerAfterZoneTransition(direction) {
+  const p = gameState?.player;
+  if (!p) return;
+  const margin = Number.isFinite(CONFIG.world?.boundaryPushback)
+    ? CONFIG.world.boundaryPushback * 2
+    : 44;
+  let targetX = CONFIG.canvas.width * 0.5;
+  let targetY = CONFIG.canvas.height * 0.5;
+  if (direction === 'east') targetX = p.radius + margin;
+  if (direction === 'west') targetX = CONFIG.canvas.width - p.radius - margin;
+  if (direction === 'south') targetY = p.radius + margin;
+  if (direction === 'north') targetY = CONFIG.canvas.height - p.radius - margin;
+  p.x = clamp(targetX, p.radius, CONFIG.canvas.width - p.radius);
+  p.y = clamp(targetY, p.radius, CONFIG.canvas.height - p.radius);
+}
+
+function transitionToZoneImmediately(targetZoneId, direction) {
+  const world = gameState?.world;
+  const zones = getSafeZones();
+  const nextZone = zones?.[targetZoneId];
+  if (!world || !nextZone) return false;
+
+  const previousZoneId = world.currentZoneId || null;
+  world.previousZoneId = previousZoneId;
+  world.currentZoneId = nextZone.id;
+  world.visitedZones = world.visitedZones || {};
+  world.visitedZones[nextZone.id] = true;
+  world.clearedZones = world.clearedZones || {};
+  const prevZone = zones[previousZoneId] || null;
+  if (prevZone && Array.isArray(prevZone.forwardExits) && prevZone.forwardExits.includes(direction)) {
+    world.clearedZones[prevZone.id] = true;
+  }
+
+  world.zoneTimer = 0;
+  world.pressure = 0;
+  world.isTransitioning = false;
+  world.transitionTimer = 0;
+  world.transitionTargetZone = null;
+  world.transitionDirection = null;
+  world.transitionReady = false;
+
+  world.exitUnlocked = areZoneExitsUnlocked(nextZone, world);
+  world.availableExits = getAvailableExitsForZone(nextZone, world);
+  world.exitRenderWarnings = {};
+  world.exitOverwriteWarnings = {};
+  world.exitUnlockMismatchWarnings = {};
+
+  repositionPlayerAfterZoneTransition(direction);
+
+  gameState.enemies = [];
+  gameState.projectiles = [];
+  gameState.xpGems = [];
+  gameState.particles = [];
+
+  world.zoneTransitionCooldownTimer = Math.max(0, Number(CONFIG.world?.zoneTransitionCooldown) || 0);
+
+  console.info('[zone] immediate transition', {
+    from: previousZoneId,
+    to: nextZone.id,
+    direction,
+  });
+
+  return true;
+}
+
+function startBossEncounterFromGate(targetZoneId) {
+  const world = gameState?.world;
+  if (!world) return;
+  if (targetZoneId === 'tododon_gate' || targetZoneId === 'tododon_duel') {
+    if (world.tododonEncounterTriggered) return;
+    world.tododonEncounterTriggered = true;
+    world.isTransitioning = false;
+    world.transitionTimer = 0;
+    world.transitionReady = false;
+    world.transitionTargetZone = null;
+    world.transitionDirection = null;
+    startEndingEvent();
+    return;
+  }
+  if (targetZoneId === 'red_light_gate' || targetZoneId === 'red_light_duel') {
+    if (world.redLightBossTriggered) return;
+    world.redLightBossTriggered = true;
+    gameState.duel = gameState.duel || {};
+    gameState.duel.bossType = 'red_light';
+  }
+}
+
 function beginZoneTransition(direction, targetZoneId) {
   if (gameState?.phase !== 'playing') return;
   const world = gameState?.world;
   const safeDirection = typeof direction === 'string' ? direction : null;
   const safeTargetZoneId = typeof targetZoneId === 'string' ? targetZoneId : '';
-  if (!world || world.isTransitioning || !world.exitUnlocked || !safeDirection || !safeTargetZoneId) return;
-  if (!getSafeZones()?.[safeTargetZoneId]) return;
-  const duration = Math.max(0, Number(CONFIG.world?.transitionDuration) || 0);
-  world.transitionDirection = safeDirection;
-  world.transitionTargetZone = safeTargetZoneId;
-  world.transitionTimer = Number.isFinite(duration) ? duration : 0;
-  world.transitionReady = false;
-  world.exitUnlocked = false;
-  world.isTransitioning = true;
-  console.info(`[zone] begin transition ${world.currentZoneId || 'unknown'} -> ${safeTargetZoneId} (${safeDirection})`);
+
+  if (!world || !safeDirection || !safeTargetZoneId) return;
+  if (world.exitUnlocked !== true) return;
+
+  if (isBossGateTarget(safeTargetZoneId)) {
+    startBossEncounterFromGate(safeTargetZoneId);
+    return;
+  }
+
+  if (!getSafeZones()?.[safeTargetZoneId]) {
+    console.warn('[zone] invalid transition target', {
+      from: world.currentZoneId,
+      direction: safeDirection,
+      targetZoneId: safeTargetZoneId,
+    });
+    return;
+  }
+
+  transitionToZoneImmediately(safeTargetZoneId, safeDirection);
 }
 
 function completeZoneTransition() {
@@ -1284,22 +1391,12 @@ function completeZoneTransition() {
   world.transitionTargetZone = null;
   world.transitionDirection = null;
 
-  const p = gameState?.player;
-  if (p) {
-    const margin = Number.isFinite(CONFIG.world?.boundaryPushback) ? CONFIG.world.boundaryPushback * 2 : 44;
-    let targetX = CONFIG.canvas.width * 0.5;
-    let targetY = CONFIG.canvas.height * 0.5;
-    if (transitionDirection === 'east') targetX = p.radius + margin;
-    if (transitionDirection === 'west') targetX = CONFIG.canvas.width - p.radius - margin;
-    if (transitionDirection === 'south') targetY = p.radius + margin;
-    if (transitionDirection === 'north') targetY = CONFIG.canvas.height - p.radius - margin;
-    p.x = clamp(targetX, p.radius, CONFIG.canvas.width - p.radius);
-    p.y = clamp(targetY, p.radius, CONFIG.canvas.height - p.radius);
-  }
+  repositionPlayerAfterZoneTransition(transitionDirection);
 
   gameState.enemies = [];
   gameState.projectiles = [];
   gameState.xpGems = [];
+  gameState.particles = [];
   console.info(`[zone] complete transition to ${nextZone.id}`);
 }
 
@@ -1587,6 +1684,7 @@ function updatePlayerMovement(dt) {
     }
   }
   if (world && !world.isTransitioning) {
+    if ((Number(world.zoneTransitionCooldownTimer) || 0) > 0) return;
     const zone = getCurrentZone();
     const exits = world.availableExits || {};
     const byDir = {
@@ -2121,6 +2219,7 @@ function updatePlaying(dt) {
   world.boundaryMessageCooldown = Math.max(0, (Number(world.boundaryMessageCooldown) || 0) - dt);
   if (!Number.isFinite(world.transitionTimer)) world.transitionTimer = 0;
   world.isTransitioning = Boolean(world.isTransitioning);
+  world.zoneTransitionCooldownTimer = Math.max(0, (Number(world.zoneTransitionCooldownTimer) || 0) - dt);
   const pressureStart = Math.max(0, Number(zone?.durationBeforePressure) || 0);
   const exitStart = Math.max(pressureStart, getZoneExitUnlockTime(zone));
   world.availableExits = getAvailableExitsForZone(zone, world);
@@ -2633,7 +2732,7 @@ function drawZoneGuidance() {
     ctx.fillText(world.zoneMessage, CONFIG.canvas.width * 0.5, CONFIG.canvas.height - 26);
     ctx.restore();
   }
-  if ((world.transitionTimer || 0) > 0) {
+  if (world.isTransitioning && (world.transitionTimer || 0) > 0) {
     const maxDuration = Math.max(0.01, Number(CONFIG.world?.transitionDuration) || 1.2);
     const alpha = clamp((world.transitionTimer / maxDuration) * (Number(CONFIG.world?.transitionOverlayAlpha) || 0.4), 0, 1);
     ctx.fillStyle = `rgba(0,0,0,${alpha})`;
