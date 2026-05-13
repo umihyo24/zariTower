@@ -316,6 +316,7 @@ const CONFIG = {
     zoneTimer: 0,
     pressure: 0,
     transitionReady: false,
+    exitUnlocked: false,
     transitionTimer: 0,
     isTransitioning: false,
     transitionDirection: null,
@@ -1059,13 +1060,14 @@ function beginZoneTransition(direction, targetZoneId) {
   const world = gameState?.world;
   const safeDirection = typeof direction === 'string' ? direction : null;
   const safeTargetZoneId = typeof targetZoneId === 'string' ? targetZoneId : '';
-  if (!world || world.isTransitioning || !world.transitionReady || !safeDirection || !safeTargetZoneId) return;
+  if (!world || world.isTransitioning || !world.exitUnlocked || !safeDirection || !safeTargetZoneId) return;
   if (!getSafeZones()?.[safeTargetZoneId]) return;
   const duration = Math.max(0, Number(CONFIG.world?.transitionDuration) || 0);
   world.transitionDirection = safeDirection;
   world.transitionTargetZone = safeTargetZoneId;
   world.transitionTimer = Number.isFinite(duration) ? duration : 0;
   world.transitionReady = false;
+  world.exitUnlocked = false;
   world.isTransitioning = true;
   console.info(`[zone] begin transition ${world.currentZoneId || 'unknown'} -> ${safeTargetZoneId} (${safeDirection})`);
 }
@@ -1087,6 +1089,7 @@ function completeZoneTransition() {
       world.isTransitioning = false;
       world.transitionTimer = 0;
       world.transitionReady = false;
+      world.exitUnlocked = false;
       startEndingEvent();
     }
     return;
@@ -1111,6 +1114,7 @@ function completeZoneTransition() {
   world.zoneTimer = 0;
   world.pressure = 0;
   world.transitionReady = false;
+  world.exitUnlocked = false;
   world.transitionTimer = 0;
   world.isTransitioning = false;
   world.transitionTargetZone = null;
@@ -1951,14 +1955,15 @@ function updatePlaying(dt) {
   const exitStart = Math.max(pressureStart, Number(zone?.durationBeforeExit) || pressureStart);
   world.availableExits = getAvailableExitsForZone(zone, world);
   if (!world.isTransitioning) {
-    const previousReady = Boolean(world.transitionReady);
-    world.transitionReady = Object.keys(world.availableExits || {}).some((dir) => (zone?.forwardExits || []).includes(dir));
-    if (!previousReady && world.transitionReady) {
+    const previousUnlocked = Boolean(world.exitUnlocked);
+    world.exitUnlocked = Object.keys(world.availableExits || {}).some((dir) => (zone?.forwardExits || []).includes(dir));
+    world.transitionReady = world.exitUnlocked;
+    if (!previousUnlocked && world.exitUnlocked) {
       console.info(`[zone] exits unlocked for ${zone?.id || 'unknown'} at ${Math.round(world.zoneTimer * 10) / 10}s`);
     }
   }
   world.pressure = world.zoneTimer <= pressureStart ? 0 : clamp((world.zoneTimer - pressureStart) / Math.max(0.1, exitStart - pressureStart), 0, 1);
-  if (zone?.id === 'gaze_lair' && world.transitionReady && !world.redLightBossTriggered) {
+  if (zone?.id === 'gaze_lair' && world.exitUnlocked && !world.redLightBossTriggered) {
     setZoneMessage('紅い灯りがこちらを見ている……', CONFIG.world?.messageDuration);
   }
   updatePlayerMovement(dt);
@@ -2420,7 +2425,7 @@ function drawBackground() {
 function drawZoneGuidance() {
   const world = gameState?.world;
   if (!world) return;
-  if (!world.isTransitioning && world.transitionReady && world.availableExits && Object.keys(world.availableExits).length > 0) {
+  if (!world.isTransitioning && world.exitUnlocked && world.availableExits && Object.keys(world.availableExits).length > 0) {
     const width = Number.isFinite(CONFIG.world?.exitIndicatorWidth) ? CONFIG.world.exitIndicatorWidth : 32;
     const pulse = 0.3 + 0.3 * (1 + Math.sin((gameState.time / 1000) * (CONFIG.world?.exitIndicatorPulseSpeed || 3.2))) * 0.5;
     ctx.fillStyle = `rgba(180,220,255,${pulse})`;
