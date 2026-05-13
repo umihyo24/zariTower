@@ -37,6 +37,22 @@ const CONFIG = {
     baseHp: 28,
     touchDamage: 8,
     damageCooldown: 0.7,
+    defaultContactProfile: 'damage_passable',
+    contactProfiles: {
+      passable: { blocksPlayer: false, slowsPlayer: false, slowMultiplier: 1, touchDamageScale: 0 },
+      damage_passable: { blocksPlayer: false, slowsPlayer: false, slowMultiplier: 1, touchDamageScale: 1 },
+      snare: { blocksPlayer: false, slowsPlayer: true, slowMultiplier: 0.45, touchDamageScale: 0 },
+      snare_damage: { blocksPlayer: false, slowsPlayer: true, slowMultiplier: 0.55, touchDamageScale: 0.5 },
+      solid_damage: { blocksPlayer: true, slowsPlayer: false, slowMultiplier: 1, touchDamageScale: 1.25 },
+    },
+    creatureContactProfiles: {
+      botancho: 'passable',
+      shinju: 'passable',
+      crayfish: 'damage_passable',
+      frostfang: 'snare_damage',
+      inoshishi: 'damage_passable',
+      golem: 'solid_damage',
+    },
     spawnInterval: 0.8,
     minSpawnInterval: 0.22,
     maxEnemiesBase: 35,
@@ -470,6 +486,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
       attackTimer: 0,
       reflectPct: 0,
       facingX: -1,
+      contactSlowMultiplier: 1,
     },
     debug: preservedDebug,
     startUi: preservedStartUi,
@@ -1147,6 +1164,7 @@ function spawnEnemy() {
   const zoneCreatures = Array.isArray(zone?.enemyTypes) && zone.enemyTypes.length > 0 ? zone.enemyTypes : ['crayfish'];
   const creatureId = zoneCreatures[Math.floor(Math.random() * zoneCreatures.length)] || 'crayfish';
   const requestedArchetypeKey = CONFIG.enemy?.creatureRoles?.[creatureId] || 'basic';
+  const contactProfileId = getEnemyContactProfileId({ creatureId });
   const archetype = getEnemyArchetypeId(requestedArchetypeKey);
   const tuning = CONFIG.enemy?.archetypeTuning?.[archetype] || CONFIG.enemy?.archetypeTuning?.basic || {};
   const speedScale = Number.isFinite(tuning.speedScale) ? tuning.speedScale : 1;
@@ -1156,6 +1174,7 @@ function spawnEnemy() {
     id: gameState.nextEnemyId++,
     archetype,
     creatureId,
+    contactProfileId,
     x, y,
     radius: CONFIG.enemy.baseRadius,
     speed: (Number.isFinite(CONFIG.enemy.baseSpeed) ? CONFIG.enemy.baseSpeed : 0) * speedMultiplier * speedScale,
@@ -1170,6 +1189,48 @@ function spawnEnemy() {
     chargeBurstTimer: 0,
     supportPulseTimer: rand(0.6, 2.4),
   });
+}
+
+function getEnemyContactProfileId(enemy) {
+  const fallbackId = CONFIG.enemy?.defaultContactProfile || 'damage_passable';
+  const configuredId = CONFIG.enemy?.creatureContactProfiles?.[enemy?.creatureId];
+  return typeof configuredId === 'string' && configuredId ? configuredId : fallbackId;
+}
+
+function getEnemyContactProfile(enemy) {
+  const fallbackId = CONFIG.enemy?.defaultContactProfile || 'damage_passable';
+  const profileId = typeof enemy?.contactProfileId === 'string' && enemy.contactProfileId
+    ? enemy.contactProfileId
+    : getEnemyContactProfileId(enemy);
+  const profiles = CONFIG.enemy?.contactProfiles || {};
+  const fallbackProfile = profiles[fallbackId] || {};
+  return profiles[profileId] || fallbackProfile;
+}
+
+function resolvePlayerEnemyBlocking(enemy) {
+  const p = gameState?.player;
+  if (!p || !enemy) return;
+  const px = Number.isFinite(p.x) ? p.x : 0;
+  const py = Number.isFinite(p.y) ? p.y : 0;
+  const ex = Number.isFinite(enemy.x) ? enemy.x : 0;
+  const ey = Number.isFinite(enemy.y) ? enemy.y : 0;
+  const pr = Number.isFinite(p.radius) ? p.radius : 0;
+  const er = Number.isFinite(enemy.radius) ? enemy.radius : 0;
+  const minDist = pr + er;
+  let dx = px - ex;
+  let dy = py - ey;
+  let dist = Math.hypot(dx, dy);
+  if (!Number.isFinite(dist)) return;
+  if (dist >= minDist) return;
+  if (dist <= 0.00001) {
+    dx = 1;
+    dy = 0;
+    dist = 1;
+  }
+  const overlap = minDist - dist;
+  if (!Number.isFinite(overlap) || overlap <= 0) return;
+  p.x = px + (dx / dist) * overlap;
+  p.y = py + (dy / dist) * overlap;
 }
 
 function spawnHitParticles(x, y) {
@@ -1323,9 +1384,11 @@ function updatePlayerMovement(dt) {
   else if (xMove > 0) p.facingX = 1;
 
   const mag = Math.hypot(xMove, yMove) || 1;
+  const contactSlowMultiplier = Number.isFinite(p.contactSlowMultiplier) && p.contactSlowMultiplier > 0 ? p.contactSlowMultiplier : 1;
+  const effectiveSpeed = p.speed * contactSlowMultiplier;
   const prevX = p.x;
-  p.x += (xMove / mag) * p.speed * dt;
-  p.y += (yMove / mag) * p.speed * dt;
+  p.x += (xMove / mag) * effectiveSpeed * dt;
+  p.y += (yMove / mag) * effectiveSpeed * dt;
   p.x = clamp(p.x, p.radius, CONFIG.canvas.width - p.radius);
   p.y = clamp(p.y, p.radius, CONFIG.canvas.height - p.radius);
   const world = gameState.world;
@@ -1733,14 +1796,38 @@ function updateEnemies(dt) {
   if (!isEnding) applyEnemySeparation(dt);
 
   gameState.damageTimer -= dt;
-  if (!isEnding && gameState.damageTimer <= 0) {
+  if (p) p.contactSlowMultiplier = 1;
+  if (!isEnding && p) {
+    let contactDamageApplied = false;
     gameState.enemies.forEach(enemy => {
-      if (distance(enemy, p) < enemy.radius + p.radius) {
-        p.hp -= CONFIG.enemy.touchDamage;
-        if (p.reflectPct > 0) enemy.hp -= CONFIG.enemy.touchDamage * p.reflectPct;
+      if (!enemy) return;
+      const enemyRadius = Number.isFinite(enemy.radius) ? enemy.radius : 0;
+      const playerRadius = Number.isFinite(p.radius) ? p.radius : 0;
+      if (distance(enemy, p) >= enemyRadius + playerRadius) return;
+      const profile = getEnemyContactProfile(enemy);
+      if (profile?.slowsPlayer) {
+        const slowMultiplier = Number.isFinite(profile?.slowMultiplier) && profile.slowMultiplier > 0 ? profile.slowMultiplier : 1;
+        p.contactSlowMultiplier = Math.min(p.contactSlowMultiplier, slowMultiplier);
+      }
+      if (profile?.blocksPlayer) resolvePlayerEnemyBlocking(enemy);
+      if (!contactDamageApplied && gameState.damageTimer <= 0) {
+        const touchDamageScale = Number.isFinite(profile?.touchDamageScale) ? profile.touchDamageScale : 1;
+        if (touchDamageScale > 0) {
+          const baseTouchDamage = Number.isFinite(CONFIG.enemy?.touchDamage) ? CONFIG.enemy.touchDamage : 0;
+          const contactDamage = baseTouchDamage * touchDamageScale;
+          if (contactDamage > 0) {
+            p.hp -= contactDamage;
+            if (p.reflectPct > 0) enemy.hp -= contactDamage * p.reflectPct;
+            contactDamageApplied = true;
+          }
+        }
       }
     });
-    gameState.damageTimer = CONFIG.enemy.damageCooldown;
+    p.x = clamp(p.x, p.radius, CONFIG.canvas.width - p.radius);
+    p.y = clamp(p.y, p.radius, CONFIG.canvas.height - p.radius);
+    if (contactDamageApplied) {
+      gameState.damageTimer = Number.isFinite(CONFIG.enemy?.damageCooldown) ? CONFIG.enemy.damageCooldown : 0.7;
+    }
   }
 
   const aliveEnemies = [];
@@ -2453,6 +2540,25 @@ function drawEnemies() {
     const isDrifter = e?.archetype === drifterType;
     const key = `creature_${e?.creatureId || 'crayfish'}`;
     drawEntityWithFallback(e, gameState.images[key], isDrifter ? '#96c9ff' : '#85ff8a');
+    const contactProfile = getEnemyContactProfile(e);
+    if (contactProfile?.slowsPlayer) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(165, 226, 255, 0.45)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(e.x ?? 0, e.y ?? 0, (e.radius ?? 0) + 5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (contactProfile?.blocksPlayer) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(240, 240, 240, 0.4)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(e.x ?? 0, e.y ?? 0, (e.radius ?? 0) + 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
     if (isDrifter) {
       ctx.save();
       ctx.strokeStyle = 'rgba(150, 201, 255, 0.55)';
