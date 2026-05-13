@@ -463,7 +463,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
     manualShots: [],
     input: { manualFirePressed: false, manualFireHeld: false },
     rangeVisibility: { visible: false, timer: 0 },
-    world: { ...CONFIG.worldStateDefaults, clearedZones: { shallows: true }, availableExits: {} },
+    world: { ...CONFIG.worldStateDefaults, visitedZones: { shallows: true }, clearedZones: {}, availableExits: {} },
     runCoinsEarned: 0, runCompleted: false,
     player: {
       x: CONFIG.canvas.width / 2,
@@ -516,7 +516,6 @@ function startRun() {
   resetState('playing');
   gameState.debug = preservedDebug;
   gameState.startUi.debugMenuOpen = false;
-  setZoneMessage(getCurrentZone()?.transitionMessage || '海流がかわりはじめた……', CONFIG.world?.messageDuration);
 }
 
 function startEndingEvent() {
@@ -1055,14 +1054,20 @@ function getAvailableExitsForZone(zone, world) {
   return available;
 }
 
-function beginZoneTransition() {
+function beginZoneTransition(direction, targetZoneId) {
   if (gameState?.phase !== 'playing') return;
   const world = gameState?.world;
-  if (!world || world.isTransitioning || !world.transitionReady) return;
+  const safeDirection = typeof direction === 'string' ? direction : null;
+  const safeTargetZoneId = typeof targetZoneId === 'string' ? targetZoneId : '';
+  if (!world || world.isTransitioning || !world.transitionReady || !safeDirection || !safeTargetZoneId) return;
+  if (!getSafeZones()?.[safeTargetZoneId]) return;
   const duration = Math.max(0, Number(CONFIG.world?.transitionDuration) || 0);
+  world.transitionDirection = safeDirection;
+  world.transitionTargetZone = safeTargetZoneId;
   world.transitionTimer = Number.isFinite(duration) ? duration : 0;
   world.transitionReady = false;
   world.isTransitioning = true;
+  console.info(`[zone] begin transition ${world.currentZoneId || 'unknown'} -> ${safeTargetZoneId} (${safeDirection})`);
 }
 
 function completeZoneTransition() {
@@ -1093,14 +1098,16 @@ function completeZoneTransition() {
     gameState.duel.bossType = 'red_light';
   }
 
+  const transitionDirection = world.transitionDirection;
   world.previousZoneId = world.currentZoneId || null;
   world.currentZoneId = nextZone.id;
+  world.visitedZones = world.visitedZones || {};
+  world.visitedZones[nextZone.id] = true;
   world.clearedZones = world.clearedZones || {};
   const prevZone = zones[world.previousZoneId] || null;
-  if (prevZone && Array.isArray(prevZone.forwardExits) && prevZone.forwardExits.includes(world.transitionDirection)) {
+  if (prevZone && Array.isArray(prevZone.forwardExits) && prevZone.forwardExits.includes(transitionDirection)) {
     world.clearedZones[prevZone.id] = true;
   }
-  world.clearedZones[nextZone.id] = true;
   world.zoneTimer = 0;
   world.pressure = 0;
   world.transitionReady = false;
@@ -1114,10 +1121,10 @@ function completeZoneTransition() {
     const margin = Number.isFinite(CONFIG.world?.boundaryPushback) ? CONFIG.world.boundaryPushback * 2 : 44;
     let targetX = CONFIG.canvas.width * 0.5;
     let targetY = CONFIG.canvas.height * 0.5;
-    if (world.transitionDirection === 'east') targetX = p.radius + margin;
-    if (world.transitionDirection === 'west') targetX = CONFIG.canvas.width - p.radius - margin;
-    if (world.transitionDirection === 'south') targetY = p.radius + margin;
-    if (world.transitionDirection === 'north') targetY = CONFIG.canvas.height - p.radius - margin;
+    if (transitionDirection === 'east') targetX = p.radius + margin;
+    if (transitionDirection === 'west') targetX = CONFIG.canvas.width - p.radius - margin;
+    if (transitionDirection === 'south') targetY = p.radius + margin;
+    if (transitionDirection === 'north') targetY = CONFIG.canvas.height - p.radius - margin;
     p.x = clamp(targetX, p.radius, CONFIG.canvas.width - p.radius);
     p.y = clamp(targetY, p.radius, CONFIG.canvas.height - p.radius);
   }
@@ -1126,6 +1133,7 @@ function completeZoneTransition() {
   gameState.projectiles = [];
   gameState.xpGems = [];
   setZoneMessage(getCurrentZone()?.transitionMessage, CONFIG.world?.messageDuration);
+  console.info(`[zone] complete transition to ${nextZone.id}`);
 }
 
 function updateWorldTransition(dt) {
@@ -1387,16 +1395,29 @@ function updatePlayerMovement(dt) {
   const contactSlowMultiplier = Number.isFinite(p.contactSlowMultiplier) && p.contactSlowMultiplier > 0 ? p.contactSlowMultiplier : 1;
   const effectiveSpeed = p.speed * contactSlowMultiplier;
   const prevX = p.x;
+  const prevY = p.y;
   p.x += (xMove / mag) * effectiveSpeed * dt;
   p.y += (yMove / mag) * effectiveSpeed * dt;
   p.x = clamp(p.x, p.radius, CONFIG.canvas.width - p.radius);
   p.y = clamp(p.y, p.radius, CONFIG.canvas.height - p.radius);
   const world = gameState.world;
-  if (world && p.x <= p.radius + 0.01 && prevX !== p.x && world.boundaryMessageCooldown <= 0) {
-    const pushback = Number.isFinite(CONFIG.world?.boundaryPushback) ? CONFIG.world.boundaryPushback : 0;
-    p.x = clamp(p.x + pushback * dt, p.radius, CONFIG.canvas.width - p.radius);
-    setZoneMessage('トド王のなわばりからはにげられない……', CONFIG.world?.boundaryMessageDuration);
-    world.boundaryMessageCooldown = Math.max(0, Number(CONFIG.world?.boundaryMessageCooldown) || 0);
+  if (world && gameState?.phase === 'duel' && world.boundaryMessageCooldown <= 0) {
+    const isTododonDuel = gameState?.duel?.bossType === 'tododon';
+    const hitBoundary = (
+      (p.x <= p.radius + 0.01 && prevX !== p.x)
+      || (p.x >= CONFIG.canvas.width - p.radius - 0.01 && prevX !== p.x)
+      || (p.y <= p.radius + 0.01 && prevY !== p.y)
+      || (p.y >= CONFIG.canvas.height - p.radius - 0.01 && prevY !== p.y)
+    );
+    if (isTododonDuel && hitBoundary) {
+      const pushback = Number.isFinite(CONFIG.world?.boundaryPushback) ? CONFIG.world.boundaryPushback : 0;
+      if (p.x <= p.radius + 0.01) p.x = clamp(p.x + pushback * dt, p.radius, CONFIG.canvas.width - p.radius);
+      if (p.x >= CONFIG.canvas.width - p.radius - 0.01) p.x = clamp(p.x - pushback * dt, p.radius, CONFIG.canvas.width - p.radius);
+      if (p.y <= p.radius + 0.01) p.y = clamp(p.y + pushback * dt, p.radius, CONFIG.canvas.height - p.radius);
+      if (p.y >= CONFIG.canvas.height - p.radius - 0.01) p.y = clamp(p.y - pushback * dt, p.radius, CONFIG.canvas.height - p.radius);
+      setZoneMessage('トド王のなわばりからはにげられない……', CONFIG.world?.boundaryMessageDuration);
+      world.boundaryMessageCooldown = Math.max(0, Number(CONFIG.world?.boundaryMessageCooldown) || 0);
+    }
   }
   if (world && !world.isTransitioning) {
     const zone = getCurrentZone();
@@ -1410,12 +1431,7 @@ function updatePlayerMovement(dt) {
     const direction = Object.keys(byDir).find(k => byDir[k]);
     const target = direction ? exits[direction] : null;
     if (target && getSafeZones()?.[target]) {
-      world.transitionDirection = direction;
-      world.transitionTargetZone = target;
-      beginZoneTransition();
-    } else if (direction && world.boundaryMessageCooldown <= 0) {
-      setZoneMessage('トド王のなわばりからはにげられない……', CONFIG.world?.boundaryMessageDuration);
-      world.boundaryMessageCooldown = Math.max(0, Number(CONFIG.world?.boundaryMessageCooldown) || 0);
+      beginZoneTransition(direction, target);
     }
   }
 }
@@ -1934,7 +1950,13 @@ function updatePlaying(dt) {
   const pressureStart = Math.max(0, Number(zone?.durationBeforePressure) || 0);
   const exitStart = Math.max(pressureStart, Number(zone?.durationBeforeExit) || pressureStart);
   world.availableExits = getAvailableExitsForZone(zone, world);
-  if (!world.isTransitioning) world.transitionReady = Object.keys(world.availableExits || {}).some((dir) => (zone?.forwardExits || []).includes(dir));
+  if (!world.isTransitioning) {
+    const previousReady = Boolean(world.transitionReady);
+    world.transitionReady = Object.keys(world.availableExits || {}).some((dir) => (zone?.forwardExits || []).includes(dir));
+    if (!previousReady && world.transitionReady) {
+      console.info(`[zone] exits unlocked for ${zone?.id || 'unknown'} at ${Math.round(world.zoneTimer * 10) / 10}s`);
+    }
+  }
   world.pressure = world.zoneTimer <= pressureStart ? 0 : clamp((world.zoneTimer - pressureStart) / Math.max(0.1, exitStart - pressureStart), 0, 1);
   if (zone?.id === 'gaze_lair' && world.transitionReady && !world.redLightBossTriggered) {
     setZoneMessage('紅い灯りがこちらを見ている……', CONFIG.world?.messageDuration);
@@ -2398,7 +2420,7 @@ function drawBackground() {
 function drawZoneGuidance() {
   const world = gameState?.world;
   if (!world) return;
-  if (world.availableExits && Object.keys(world.availableExits).length > 0) {
+  if (!world.isTransitioning && world.transitionReady && world.availableExits && Object.keys(world.availableExits).length > 0) {
     const width = Number.isFinite(CONFIG.world?.exitIndicatorWidth) ? CONFIG.world.exitIndicatorWidth : 32;
     const pulse = 0.3 + 0.3 * (1 + Math.sin((gameState.time / 1000) * (CONFIG.world?.exitIndicatorPulseSpeed || 3.2))) * 0.5;
     ctx.fillStyle = `rgba(180,220,255,${pulse})`;
