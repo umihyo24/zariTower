@@ -114,13 +114,14 @@ const CONFIG = {
     exitIndicatorWidth: 36,
     exitIndicatorPulseSpeed: 3.2,
   },
-  ZONES: {
+  zones: {
     shallows: { id: 'shallows', name: '浅瀬', biome: 'shallows', exits: { east: 'kelp' }, enemyTypes: ['crayfish', 'botancho'], maxEnemies: 14, spawnInterval: 1.4, pressureLevel: 0.45, backgroundColor: '#173457', overlayColor: 'rgba(208,236,255,0.08)', transitionMessage: '海流がかわりはじめた……', durationBeforePressure: 20, durationBeforeExit: 35 },
     kelp: { id: 'kelp', name: '海藻地帯', biome: 'kelp', exits: { east: 'carcass', west: 'shallows' }, enemyTypes: ['botancho', 'shinju'], maxEnemies: 18, spawnInterval: 1.18, pressureLevel: 0.54, backgroundColor: '#163b3f', overlayColor: 'rgba(122,188,164,0.08)', transitionMessage: '生きものたちが奥へ逃げていく……', durationBeforePressure: 18, durationBeforeExit: 34 },
     carcass: { id: 'carcass', name: '死骸地帯', biome: 'carcass', exits: { east: 'branch_point', west: 'kelp' }, enemyTypes: ['crayfish', 'inoshishi', 'golem'], maxEnemies: 21, spawnInterval: 1.0, pressureLevel: 0.72, backgroundColor: '#392d37', overlayColor: 'rgba(210,122,112,0.10)', transitionMessage: '腐肉のにおいが濃くなる……', durationBeforePressure: 17, durationBeforeExit: 32 },
-    branch_point: { id: 'branch_point', name: '分岐海流', biome: 'branch', exits: { east: 'todo_domain', southeast: 'drowned_shrine', west: 'carcass' }, enemyTypes: ['inoshishi', 'botancho'], maxEnemies: 15, spawnInterval: 1.15, pressureLevel: 0.8, backgroundColor: '#1f2b3d', overlayColor: 'rgba(180,210,240,0.10)', transitionMessage: '流れが二手に裂ける……', durationBeforePressure: 14, durationBeforeExit: 22 },
-    todo_domain: { id: 'todo_domain', name: 'トド領域', biome: 'tododon', exits: { west: 'branch_point' }, enemyTypes: ['golem', 'inoshishi', 'shinju'], maxEnemies: 12, spawnInterval: 1.05, pressureLevel: 1, backgroundColor: '#20263a', overlayColor: 'rgba(255,255,255,0.14)', transitionMessage: 'トド王のなわばりが近い……', durationBeforePressure: 12, durationBeforeExit: 24, boss: 'tododon' },
-    drowned_shrine: { id: 'drowned_shrine', name: '水没神殿', biome: 'shrine', exits: { northwest: 'branch_point' }, enemyTypes: ['shinju', 'botancho'], maxEnemies: 10, spawnInterval: 1.35, pressureLevel: 0.95, backgroundColor: '#1a2131', overlayColor: 'rgba(186,154,224,0.10)', transitionMessage: '視線の気配が水底からのぼる……', durationBeforePressure: 12, durationBeforeExit: 22, boss: 'red_light' },
+    branch_point: { id: 'branch_point', name: '分岐海流', biome: 'branch', exits: { east: 'todo_domain', south: 'drowned_shrine', west: 'carcass' }, forwardExits: ['east', 'south'], enemyTypes: ['inoshishi', 'botancho'], maxEnemies: 15, spawnInterval: 1.15, pressureLevel: 0.8, backgroundColor: '#1f2b3d', overlayColor: 'rgba(180,210,240,0.10)', transitionMessage: '流れが二手に裂ける……', durationBeforePressure: 14, durationBeforeExit: 22 },
+    todo_domain: { id: 'todo_domain', name: 'トド領域', biome: 'tododon', exits: { west: 'branch_point', east: 'tododon_gate' }, forwardExits: ['east'], enemyTypes: ['golem', 'inoshishi'], maxEnemies: 9, spawnInterval: 1.28, pressureLevel: 1, backgroundColor: '#20263a', overlayColor: 'rgba(255,255,255,0.14)', transitionMessage: 'トド王のなわばりが近い……', durationBeforePressure: 12, durationBeforeExit: 24, boss: 'tododon' },
+    drowned_shrine: { id: 'drowned_shrine', name: '水没神殿', biome: 'shrine', exits: { north: 'branch_point', south: 'gaze_lair' }, forwardExits: ['south'], enemyTypes: ['shinju', 'botancho'], maxEnemies: 10, spawnInterval: 1.35, pressureLevel: 0.95, backgroundColor: '#1a2131', overlayColor: 'rgba(186,154,224,0.10)', transitionMessage: '視線の気配が水底からのぼる……', durationBeforePressure: 12, durationBeforeExit: 22 },
+    gaze_lair: { id: 'gaze_lair', name: '凝視の巣', biome: 'gaze', exits: { north: 'drowned_shrine', south: 'red_light_gate' }, forwardExits: ['south'], enemyTypes: ['shinju'], maxEnemies: 4, spawnInterval: 1.6, pressureLevel: 1, backgroundColor: '#141a28', overlayColor: 'rgba(255,120,120,0.10)', transitionMessage: '赤い視線が満ちていく……', durationBeforePressure: 10, durationBeforeExit: 18, boss: 'red_light' },
   },
   special: {
     maxEnergy: 100,
@@ -254,7 +255,8 @@ const CONFIG = {
       shinju: 'assets/shinju.png',
     },
     bosses: {
-      tododon: 'assets/tododon.png',
+      tododon: 'assets/bosses/tododon.png',
+      red_light: 'assets/bosses/red_light.png',
     },
   },
   visuals: {
@@ -292,7 +294,7 @@ const CONFIG = {
     rangeVisibilityDuration: 3.0,
     rangeFadeDuration: 0.6,
   },
-  world: {
+  worldStateDefaults: {
     currentZoneId: 'shallows',
     previousZoneId: null,
     zoneTimer: 0,
@@ -445,10 +447,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
     manualShots: [],
     input: { manualFirePressed: false, manualFireHeld: false },
     rangeVisibility: { visible: false, timer: 0 },
-    world: {
-      currentZoneId: 'shallows', previousZoneId: null, zoneTimer: 0, pressure: 0, transitionReady: false, transitionTimer: 0, isTransitioning: false, transitionDirection: null, transitionTargetZone: null,
-      zoneMessage: '', zoneMessageTimer: 0, tododonEncounterTriggered: false, redLightBossTriggered: false, boundaryMessage: '', boundaryMessageTimer: 0, boundaryMessageCooldown: 0,
-    },
+    world: { ...CONFIG.worldStateDefaults, clearedZones: { shallows: true }, availableExits: {} },
     runCoinsEarned: 0, runCompleted: false,
     player: {
       x: CONFIG.canvas.width / 2,
@@ -694,6 +693,7 @@ function startDuelBattle() {
   gameState.manualShots = [];
   gameState.input = { manualFirePressed: false, manualFireHeld: false };
   gameState.duel = {
+    bossType: 'tododon',
     tododon: {
       id: 'duel_tododon',
       x: Number(duelConfig.tododonX) || 790, y: Number(duelConfig.tododonY) || 270, radius: Number(duelConfig.tododonRadius) || 95,
@@ -987,7 +987,7 @@ function getEnemySpeedMultiplier() {
 }
 
 function getSafeZones() {
-  const zones = CONFIG?.ZONES;
+  const zones = CONFIG?.zones;
   return zones && typeof zones === 'object' ? zones : {};
 }
 
@@ -998,7 +998,7 @@ function getCurrentZone() {
 }
 
 function getExitDirectionVector(direction) {
-  const map = { east: { x: 1, y: 0 }, west: { x: -1, y: 0 }, southeast: { x: 0.7, y: 0.7 }, northwest: { x: -0.7, y: -0.7 } };
+  const map = { east: { x: 1, y: 0 }, west: { x: -1, y: 0 }, north: { x: 0, y: -1 }, south: { x: 0, y: 1 } };
   return map[direction] || null;
 }
 
@@ -1025,6 +1025,19 @@ function getZoneMaxEnemies() {
   return base + Math.floor(bonus * pressure);
 }
 
+function getAvailableExitsForZone(zone, world) {
+  const exits = zone?.exits && typeof zone.exits === 'object' ? zone.exits : {};
+  const forward = new Set(Array.isArray(zone?.forwardExits) ? zone.forwardExits : []);
+  const isCleared = Boolean(world?.clearedZones?.[zone?.id]);
+  if (isCleared) return { ...exits };
+  const canForward = Boolean(world?.zoneTimer >= Math.max(0, Number(zone?.durationBeforeExit) || 0));
+  const available = {};
+  Object.entries(exits).forEach(([dir, target]) => {
+    if (!forward.has(dir) || canForward) available[dir] = target;
+  });
+  return available;
+}
+
 function beginZoneTransition() {
   if (gameState?.phase !== 'playing') return;
   const world = gameState?.world;
@@ -1046,7 +1059,7 @@ function completeZoneTransition() {
     world.transitionTimer = 0;
     return;
   }
-  if (nextZone.boss === 'tododon') {
+  if (targetZoneId === 'tododon_gate' || nextZone.boss === 'tododon') {
     if (!world.tododonEncounterTriggered) {
       world.tododonEncounterTriggered = true;
       world.isTransitioning = false;
@@ -1056,10 +1069,21 @@ function completeZoneTransition() {
     }
     return;
   }
-  if (nextZone.boss === 'red_light' && !world.redLightBossTriggered) world.redLightBossTriggered = true;
+  if (targetZoneId === 'red_light_gate' || nextZone.boss === 'red_light') {
+    if (world.redLightBossTriggered) return;
+    world.redLightBossTriggered = true;
+    gameState.duel = gameState.duel || {};
+    gameState.duel.bossType = 'red_light';
+  }
 
   world.previousZoneId = world.currentZoneId || null;
   world.currentZoneId = nextZone.id;
+  world.clearedZones = world.clearedZones || {};
+  const prevZone = zones[world.previousZoneId] || null;
+  if (prevZone && Array.isArray(prevZone.forwardExits) && prevZone.forwardExits.includes(world.transitionDirection)) {
+    world.clearedZones[prevZone.id] = true;
+  }
+  world.clearedZones[nextZone.id] = true;
   world.zoneTimer = 0;
   world.pressure = 0;
   world.transitionReady = false;
@@ -1070,8 +1094,13 @@ function completeZoneTransition() {
 
   const p = gameState?.player;
   if (p) {
-    const targetX = Number.isFinite(CONFIG.world?.transitionPlayerX) ? CONFIG.world.transitionPlayerX : CONFIG.canvas.width * 0.18;
-    const targetY = Number.isFinite(CONFIG.world?.transitionPlayerY) ? CONFIG.world.transitionPlayerY : CONFIG.canvas.height * 0.5;
+    const margin = Number.isFinite(CONFIG.world?.boundaryPushback) ? CONFIG.world.boundaryPushback * 2 : 44;
+    let targetX = CONFIG.canvas.width * 0.5;
+    let targetY = CONFIG.canvas.height * 0.5;
+    if (world.transitionDirection === 'east') targetX = p.radius + margin;
+    if (world.transitionDirection === 'west') targetX = CONFIG.canvas.width - p.radius - margin;
+    if (world.transitionDirection === 'south') targetY = p.radius + margin;
+    if (world.transitionDirection === 'north') targetY = CONFIG.canvas.height - p.radius - margin;
     p.x = clamp(targetX, p.radius, CONFIG.canvas.width - p.radius);
     p.y = clamp(targetY, p.radius, CONFIG.canvas.height - p.radius);
   }
@@ -1306,21 +1335,24 @@ function updatePlayerMovement(dt) {
     setZoneMessage('トド王のなわばりからはにげられない……', CONFIG.world?.boundaryMessageDuration);
     world.boundaryMessageCooldown = Math.max(0, Number(CONFIG.world?.boundaryMessageCooldown) || 0);
   }
-  if (world && world.transitionReady && !world.isTransitioning) {
+  if (world && !world.isTransitioning) {
     const zone = getCurrentZone();
-    const exits = zone?.exits || {};
+    const exits = world.availableExits || {};
     const byDir = {
       east: p.x >= CONFIG.canvas.width - p.radius - 2,
       west: p.x <= p.radius + 2,
-      southeast: p.x >= CONFIG.canvas.width - p.radius - 2 && p.y >= CONFIG.canvas.height - p.radius - 2,
-      northwest: p.x <= p.radius + 2 && p.y <= p.radius + 2,
+      north: p.y <= p.radius + 2,
+      south: p.y >= CONFIG.canvas.height - p.radius - 2,
     };
-    const direction = Object.keys(exits).find(k => byDir[k]);
+    const direction = Object.keys(byDir).find(k => byDir[k]);
     const target = direction ? exits[direction] : null;
-    if (target && CONFIG?.ZONES?.[target]) {
+    if (target && getSafeZones()?.[target]) {
       world.transitionDirection = direction;
       world.transitionTargetZone = target;
       beginZoneTransition();
+    } else if (direction && world.boundaryMessageCooldown <= 0) {
+      setZoneMessage('トド王のなわばりからはにげられない……', CONFIG.world?.boundaryMessageDuration);
+      world.boundaryMessageCooldown = Math.max(0, Number(CONFIG.world?.boundaryMessageCooldown) || 0);
     }
   }
 }
@@ -1814,10 +1846,10 @@ function updatePlaying(dt) {
   world.isTransitioning = Boolean(world.isTransitioning);
   const pressureStart = Math.max(0, Number(zone?.durationBeforePressure) || 0);
   const exitStart = Math.max(pressureStart, Number(zone?.durationBeforeExit) || pressureStart);
-  if (!world.isTransitioning) world.transitionReady = world.zoneTimer >= exitStart;
+  world.availableExits = getAvailableExitsForZone(zone, world);
+  if (!world.isTransitioning) world.transitionReady = Object.keys(world.availableExits || {}).some((dir) => (zone?.forwardExits || []).includes(dir));
   world.pressure = world.zoneTimer <= pressureStart ? 0 : clamp((world.zoneTimer - pressureStart) / Math.max(0.1, exitStart - pressureStart), 0, 1);
-  if (zone?.id === 'drowned_shrine' && world.transitionReady && !world.redLightBossTriggered) {
-    world.redLightBossTriggered = true;
+  if (zone?.id === 'gaze_lair' && world.transitionReady && !world.redLightBossTriggered) {
     setZoneMessage('紅い灯りがこちらを見ている……', CONFIG.world?.messageDuration);
   }
   updatePlayerMovement(dt);
@@ -1872,6 +1904,7 @@ function updateEnding(dt) {
 
 
 function updateDuel(dt) {
+  if (gameState?.duel?.bossType === 'red_light') return updateRedLightBossBattle(dt);
   const duel = gameState?.duel; const p = gameState?.player; const c = CONFIG.duel || {};
   if (!duel || !p) return;
   updatePlayerMovement(dt);
@@ -1911,6 +1944,15 @@ function updateDuel(dt) {
   if (t.cannon?.active) { const half = (c.cannonWidth || 86) * 0.5; if (Math.abs((p.y || 0) - (t.cannon.y || 0)) <= half && gameState.damageTimer <= 0) { p.hp -= (c.cannonDamage || 38); gameState.damageTimer = CONFIG.enemy.damageCooldown; } }
   if ((p.hp || 0) <= 0) { showGameOver(); return; }
   if ((t.hp || 0) <= 0) { duel.isComplete = true; unlockTododonShop(); showClear(); }
+}
+
+function updateRedLightBossBattle(dt) {
+  const p = gameState?.player;
+  if (!p) return;
+  updatePlayerMovement(dt);
+  updatePlayerAttack(dt);
+  updateProjectiles(dt);
+  updateParticles(dt);
 }
 
 function revealRangeVisibility() {
@@ -2142,6 +2184,7 @@ function drawAirBullets() {
   manualShots.forEach(s => { ctx.save(); ctx.fillStyle = 'rgba(255,220,175,0.95)'; ctx.beginPath(); ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2); ctx.fill(); ctx.restore(); });
 }
 function drawDuelTododon() {
+  if (gameState?.duel?.bossType === 'red_light') return renderRedLightBossBattle();
   if (gameState.phase !== 'duel') return;
   const t = gameState?.duel?.tododon; if (!t) return;
   const c = CONFIG.duel || {};
@@ -2159,6 +2202,18 @@ function drawDuelTododon() {
   }
   drawEntityWithFallback(t, tododonImage, '#4f6f8e');
   if (t.cannon?.warning || t.cannon?.active) { ctx.save(); ctx.fillStyle = t.cannon.warning ? 'rgba(255,190,120,0.22)' : 'rgba(255,110,80,0.45)'; ctx.fillRect(0, (t.cannon.y || 0) - (c.cannonWidth || 86) / 2, CONFIG.canvas.width, c.cannonWidth || 86); ctx.restore(); }
+}
+function renderRedLightBossBattle() {
+  const p = gameState?.player;
+  if (!p) return;
+  ctx.save();
+  ctx.fillStyle = 'rgba(180,40,40,0.2)';
+  ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+  ctx.fillStyle = '#ffd0d0';
+  ctx.font = 'bold 26px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('だるまさんが……ころん……だッ！', CONFIG.canvas.width * 0.5, 54);
+  ctx.restore();
 }
 function drawBossActionText() { const t = gameState?.duel?.tododon; if (!t || !t.actionText) return; const w = CONFIG.canvas.width - 120; const h = 38; const x = 60; const y = CONFIG.canvas.height - 60; const alpha = t.actionTextTimer < 0.3 ? clamp(t.actionTextTimer / 0.3, 0, 1) : 1; ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = 'rgba(8,14,24,0.58)'; ctx.fillRect(x, y, w, h); ctx.strokeStyle = 'rgba(220,236,255,0.35)'; ctx.strokeRect(x, y, w, h); ctx.fillStyle = '#ecf6ff'; ctx.font = '18px sans-serif'; ctx.fillText(t.actionText, x + 16, y + 25); ctx.restore(); }
 function drawDuelBossHpBar() {
@@ -2256,14 +2311,15 @@ function drawBackground() {
 function drawZoneGuidance() {
   const world = gameState?.world;
   if (!world) return;
-  if (world.transitionReady) {
+  if (world.availableExits && Object.keys(world.availableExits).length > 0) {
     const width = Number.isFinite(CONFIG.world?.exitIndicatorWidth) ? CONFIG.world.exitIndicatorWidth : 32;
     const pulse = 0.3 + 0.3 * (1 + Math.sin((gameState.time / 1000) * (CONFIG.world?.exitIndicatorPulseSpeed || 3.2))) * 0.5;
     ctx.fillStyle = `rgba(180,220,255,${pulse})`;
-    const exits = getCurrentZone()?.exits || {};
+    const exits = world.availableExits || {};
     if (exits.east) ctx.fillRect(CONFIG.canvas.width - width, 0, width, CONFIG.canvas.height);
     if (exits.west) ctx.fillRect(0, 0, width, CONFIG.canvas.height);
-    if (exits.southeast) ctx.fillRect(CONFIG.canvas.width - width * 1.3, CONFIG.canvas.height - width * 1.3, width * 1.3, width * 1.3);
+    if (exits.north) ctx.fillRect(0, 0, CONFIG.canvas.width, width);
+    if (exits.south) ctx.fillRect(0, CONFIG.canvas.height - width, CONFIG.canvas.width, width);
   }
   if ((world.zoneMessageTimer || 0) > 0 && world.zoneMessage) {
     ctx.save();
