@@ -294,6 +294,7 @@ const CONFIG = {
     pressure: 0,
     transitionReady: false,
     transitionTimer: 0,
+    isTransitioning: false,
     transitionDirection: 'right',
     zoneMessage: '',
     zoneMessageTimer: 0,
@@ -438,8 +439,8 @@ function resetState(nextPhase = gameState.phase || 'start') {
     input: { manualFirePressed: false, manualFireHeld: false },
     rangeVisibility: { visible: false, timer: 0 },
     world: {
-      zoneIndex: 0, zoneTimer: 0, pressure: 0, transitionReady: false, transitionTimer: 0, transitionDirection: 'right',
-      zoneMessage: '', zoneMessageTimer: 0, tododonEncounterTriggered: false, boundaryMessage: '', boundaryMessageTimer: 0, boundaryMessageCooldown: 0, _transitionWasActive: false,
+      zoneIndex: 0, zoneTimer: 0, pressure: 0, transitionReady: false, transitionTimer: 0, isTransitioning: false, transitionDirection: 'right',
+      zoneMessage: '', zoneMessageTimer: 0, tododonEncounterTriggered: false, boundaryMessage: '', boundaryMessageTimer: 0, boundaryMessageCooldown: 0,
     },
     runCoinsEarned: 0, runCompleted: false,
     player: {
@@ -993,6 +994,66 @@ function getZoneMaxEnemies() {
   return base + Math.floor(bonus * pressure);
 }
 
+function beginZoneTransition() {
+  if (gameState?.phase !== 'playing') return;
+  const world = gameState?.world;
+  if (!world || world.isTransitioning || !world.transitionReady) return;
+  const duration = Math.max(0, Number(CONFIG.world?.transitionDuration) || 0);
+  world.transitionTimer = Number.isFinite(duration) ? duration : 0;
+  world.transitionReady = false;
+  world.isTransitioning = true;
+}
+
+function completeZoneTransition() {
+  if (!gameState?.world || typeof gameState.world !== 'object') return;
+  const world = gameState.world;
+  const zones = getSafeZones();
+  const zoneCount = zones.length;
+  const lastZoneIndex = Math.max(0, zoneCount - 1);
+  const currentZoneIndex = clamp(Math.floor(Number(world.zoneIndex) || 0), 0, lastZoneIndex);
+  const isFinalZone = currentZoneIndex >= lastZoneIndex;
+
+  if (isFinalZone) {
+    if (!world.tododonEncounterTriggered) {
+      world.tododonEncounterTriggered = true;
+      world.isTransitioning = false;
+      world.transitionTimer = 0;
+      world.transitionReady = false;
+      startEndingEvent();
+    }
+    return;
+  }
+
+  world.zoneIndex = clamp(currentZoneIndex + 1, 0, lastZoneIndex);
+  world.zoneTimer = 0;
+  world.pressure = 0;
+  world.transitionReady = false;
+  world.transitionTimer = 0;
+  world.isTransitioning = false;
+
+  const p = gameState?.player;
+  if (p) {
+    const targetX = Number.isFinite(CONFIG.world?.transitionPlayerX) ? CONFIG.world.transitionPlayerX : CONFIG.canvas.width * 0.18;
+    const targetY = Number.isFinite(CONFIG.world?.transitionPlayerY) ? CONFIG.world.transitionPlayerY : CONFIG.canvas.height * 0.5;
+    p.x = clamp(targetX, p.radius, CONFIG.canvas.width - p.radius);
+    p.y = clamp(targetY, p.radius, CONFIG.canvas.height - p.radius);
+  }
+
+  gameState.enemies = [];
+  gameState.projectiles = [];
+  gameState.xpGems = [];
+  setZoneMessage(getCurrentZone()?.transitionMessage, CONFIG.world?.messageDuration);
+}
+
+function updateWorldTransition(dt) {
+  if (gameState?.phase !== 'playing') return;
+  const world = gameState?.world;
+  if (!world || !world.isTransitioning) return;
+  const nextTimer = (Number(world.transitionTimer) || 0) - dt;
+  world.transitionTimer = Math.max(0, Number.isFinite(nextTimer) ? nextTimer : 0);
+  if (world.transitionTimer <= 0) completeZoneTransition();
+}
+
 function setZoneMessage(text, duration) {
   if (!gameState.world) return;
   gameState.world.zoneMessage = String(text || '');
@@ -1208,9 +1269,8 @@ function updatePlayerMovement(dt) {
     setZoneMessage('トド王のなわばりからはにげられない……', CONFIG.world?.boundaryMessageDuration);
     world.boundaryMessageCooldown = Math.max(0, Number(CONFIG.world?.boundaryMessageCooldown) || 0);
   }
-  if (world && world.transitionReady && p.x >= CONFIG.canvas.width - p.radius - 2 && world.transitionTimer <= 0) {
-    world.transitionTimer = Math.max(0, Number(CONFIG.world?.transitionDuration) || 0);
-    world.transitionReady = false;
+  if (world && world.transitionReady && p.x >= CONFIG.canvas.width - p.radius - 2) {
+    beginZoneTransition();
   }
 }
 
@@ -1699,10 +1759,11 @@ function updatePlaying(dt) {
   world.zoneTimer = Math.max(0, (Number(world.zoneTimer) || 0) + dt);
   world.zoneMessageTimer = Math.max(0, (Number(world.zoneMessageTimer) || 0) - dt);
   world.boundaryMessageCooldown = Math.max(0, (Number(world.boundaryMessageCooldown) || 0) - dt);
-  world.transitionTimer = Math.max(0, (Number(world.transitionTimer) || 0) - dt);
+  if (!Number.isFinite(world.transitionTimer)) world.transitionTimer = 0;
+  world.isTransitioning = Boolean(world.isTransitioning);
   const pressureStart = Math.max(0, Number(zone?.durationBeforePressure) || 0);
   const exitStart = Math.max(pressureStart, Number(zone?.durationBeforeExit) || pressureStart);
-  world.transitionReady = world.zoneTimer >= exitStart;
+  if (!world.isTransitioning) world.transitionReady = world.zoneTimer >= exitStart;
   world.pressure = world.zoneTimer <= pressureStart ? 0 : clamp((world.zoneTimer - pressureStart) / Math.max(0.1, exitStart - pressureStart), 0, 1);
   updatePlayerMovement(dt);
   updatePlayerAttack(dt);
@@ -1712,32 +1773,7 @@ function updatePlaying(dt) {
   updateParticles(dt);
   updateEnemies(dt);
 
-  if (world.transitionTimer <= 0 && world._transitionWasActive) {
-    world._transitionWasActive = false;
-    const zones = getSafeZones();
-    const lastZoneIndex = Math.max(0, zones.length - 1);
-    if (world.zoneIndex >= lastZoneIndex) {
-      if (!world.tododonEncounterTriggered) {
-        world.tododonEncounterTriggered = true;
-        startEndingEvent();
-        return;
-      }
-    } else {
-      world.zoneIndex = clamp(world.zoneIndex + 1, 0, lastZoneIndex);
-      world.zoneTimer = 0;
-      world.pressure = 0;
-      world.transitionReady = false;
-      gameState.enemies = [];
-      gameState.projectiles = [];
-      gameState.xpGems = [];
-      const p = gameState.player;
-      p.x = clamp(CONFIG.canvas.width * 0.28, p.radius, CONFIG.canvas.width - p.radius);
-      p.y = clamp(CONFIG.canvas.height * 0.5, p.radius, CONFIG.canvas.height - p.radius);
-      setZoneMessage(getCurrentZone()?.transitionMessage, CONFIG.world?.messageDuration);
-    }
-  } else if (world.transitionTimer > 0) {
-    world._transitionWasActive = true;
-  }
+  updateWorldTransition(dt);
 
   gameState.spawnTimer -= dt;
   if (gameState.spawnTimer <= 0) {
