@@ -199,6 +199,8 @@ const CONFIG = {
   },
   debug: {
     enabled: false,
+    fastExitUnlockEnabled: true,
+    fastExitUnlockSeconds: 3,
     targetSurvivalTimeOverride: null,
     presets: [
       { id: 'normal', label: 'Normal', targetSurvivalTime: null },
@@ -1042,12 +1044,27 @@ function getZoneMaxEnemies() {
   return base + Math.floor(bonus * pressure);
 }
 
+function getZoneExitUnlockTime(zone) {
+  const debugEnabled = Boolean(CONFIG.debug?.fastExitUnlockEnabled);
+  const debugSeconds = Number(CONFIG.debug?.fastExitUnlockSeconds);
+
+  if (debugEnabled && Number.isFinite(debugSeconds) && debugSeconds > 0) {
+    return debugSeconds;
+  }
+
+  if (Number.isFinite(zone?.durationBeforeExit)) {
+    return zone.durationBeforeExit;
+  }
+
+  return 30;
+}
+
 function getAvailableExitsForZone(zone, world) {
   const exits = zone?.exits && typeof zone.exits === 'object' ? zone.exits : {};
   const forward = new Set(Array.isArray(zone?.forwardExits) ? zone.forwardExits : []);
   const isCleared = Boolean(world?.clearedZones?.[zone?.id]);
   if (isCleared) return { ...exits };
-  const canForward = Boolean(world?.zoneTimer >= Math.max(0, Number(zone?.durationBeforeExit) || 0));
+  const canForward = Boolean(world?.zoneTimer >= Math.max(0, getZoneExitUnlockTime(zone)));
   const available = {};
   Object.entries(exits).forEach(([dir, target]) => {
     if (!forward.has(dir) || canForward) available[dir] = target;
@@ -1434,6 +1451,13 @@ function updatePlayerMovement(dt) {
     };
     const direction = Object.keys(byDir).find(k => byDir[k]);
     const target = direction ? exits[direction] : null;
+    if (world.exitUnlocked && direction && target) {
+      console.info('[zone] player touched exit', {
+        zoneId: world.currentZoneId,
+        direction,
+        targetZoneId: target,
+      });
+    }
     if (target && getSafeZones()?.[target]) {
       beginZoneTransition(direction, target);
     }
@@ -1952,14 +1976,19 @@ function updatePlaying(dt) {
   if (!Number.isFinite(world.transitionTimer)) world.transitionTimer = 0;
   world.isTransitioning = Boolean(world.isTransitioning);
   const pressureStart = Math.max(0, Number(zone?.durationBeforePressure) || 0);
-  const exitStart = Math.max(pressureStart, Number(zone?.durationBeforeExit) || pressureStart);
+  const exitStart = Math.max(pressureStart, getZoneExitUnlockTime(zone));
   world.availableExits = getAvailableExitsForZone(zone, world);
   if (!world.isTransitioning) {
     const previousUnlocked = Boolean(world.exitUnlocked);
     world.exitUnlocked = Object.keys(world.availableExits || {}).some((dir) => (zone?.forwardExits || []).includes(dir));
-    world.transitionReady = world.exitUnlocked;
     if (!previousUnlocked && world.exitUnlocked) {
-      console.info(`[zone] exits unlocked for ${zone?.id || 'unknown'} at ${Math.round(world.zoneTimer * 10) / 10}s`);
+      console.info('[debug] fast exit unlock', {
+        zoneId: zone?.id,
+        timer: world.zoneTimer,
+        unlockTime: getZoneExitUnlockTime(zone),
+        exitUnlocked: world.exitUnlocked,
+        exits: zone?.exits,
+      });
     }
   }
   world.pressure = world.zoneTimer <= pressureStart ? 0 : clamp((world.zoneTimer - pressureStart) / Math.max(0.1, exitStart - pressureStart), 0, 1);
@@ -2390,6 +2419,16 @@ function drawHud() {
   const zone = getCurrentZone();
   ctx.fillStyle = '#d7ecff';
   ctx.fillText(`Zone: ${zone?.name || '浅瀬'}`, 26, 182);
+  if (CONFIG.debug?.fastExitUnlockEnabled) {
+    const unlockTime = getZoneExitUnlockTime(zone);
+    const timer = Number(gameState?.world?.zoneTimer) || 0;
+    const unlocked = Boolean(gameState?.world?.exitUnlocked);
+    ctx.fillStyle = 'rgba(215,236,255,0.8)';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(`FAST EXIT DEBUG: exits unlock in ${unlockTime}s`, 26, 202);
+    ctx.fillText(`Zone Timer: ${timer.toFixed(1)} / ${unlockTime.toFixed(1)}`, 26, 218);
+    ctx.fillText(`Exit Unlocked: ${unlocked}`, 26, 234);
+  }
 }
 
 
@@ -2425,15 +2464,27 @@ function drawBackground() {
 function drawZoneGuidance() {
   const world = gameState?.world;
   if (!world) return;
+  const zone = getCurrentZone();
+  const diagnostics = gameState.zoneRenderDiagnostics = gameState.zoneRenderDiagnostics || {};
+  const zoneId = zone?.id || 'unknown';
+  let indicatorsDrawn = false;
   if (!world.isTransitioning && world.exitUnlocked && world.availableExits && Object.keys(world.availableExits).length > 0) {
     const width = Number.isFinite(CONFIG.world?.exitIndicatorWidth) ? CONFIG.world.exitIndicatorWidth : 32;
     const pulse = 0.3 + 0.3 * (1 + Math.sin((gameState.time / 1000) * (CONFIG.world?.exitIndicatorPulseSpeed || 3.2))) * 0.5;
     ctx.fillStyle = `rgba(180,220,255,${pulse})`;
     const exits = world.availableExits || {};
-    if (exits.east) ctx.fillRect(CONFIG.canvas.width - width, 0, width, CONFIG.canvas.height);
-    if (exits.west) ctx.fillRect(0, 0, width, CONFIG.canvas.height);
-    if (exits.north) ctx.fillRect(0, 0, CONFIG.canvas.width, width);
-    if (exits.south) ctx.fillRect(0, CONFIG.canvas.height - width, CONFIG.canvas.width, width);
+    if (exits.east) { ctx.fillRect(CONFIG.canvas.width - width, 0, width, CONFIG.canvas.height); indicatorsDrawn = true; }
+    if (exits.west) { ctx.fillRect(0, 0, width, CONFIG.canvas.height); indicatorsDrawn = true; }
+    if (exits.north) { ctx.fillRect(0, 0, CONFIG.canvas.width, width); indicatorsDrawn = true; }
+    if (exits.south) { ctx.fillRect(0, CONFIG.canvas.height - width, CONFIG.canvas.width, width); indicatorsDrawn = true; }
+  }
+  if (world.exitUnlocked && !indicatorsDrawn && !diagnostics[zoneId]) {
+    diagnostics[zoneId] = true;
+    console.warn('[zone] exit unlocked but no indicators rendered', {
+      zoneId: zone?.id,
+      exits: zone?.exits,
+      availableExits: world.availableExits,
+    });
   }
   if ((world.zoneMessageTimer || 0) > 0 && world.zoneMessage) {
     ctx.save();
