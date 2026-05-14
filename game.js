@@ -214,14 +214,24 @@ const CONFIG = {
     fastExitUnlockEnabled: true,
     fastExitUnlockSeconds: 3,
     targetSurvivalTimeOverride: null,
-    presets: [
-      { id: 'normal', label: 'Normal', targetSurvivalTime: null },
-      { id: 'tododon_60', label: 'Tododon in 60s', targetSurvivalTime: 60 },
-      { id: 'tododon_30', label: 'Tododon in 30s', targetSurvivalTime: 30 },
-      { id: 'tododon_3', label: 'Tododon in 3s', targetSurvivalTime: 3 },
-      { id: 'red_light_debug', label: 'Red Light Debug', startMode: 'red_light' },
-      { id: 'tododon_debug', label: 'Tododon Debug', startMode: 'tododon' },
+    modes: [
+      { id: 'normal', label: 'Normal Start', startMode: 'normal' },
+      {
+        id: 'boss_battle',
+        label: 'Boss Battle',
+        startMode: 'boss_battle',
+        bosses: [
+          { id: 'tododon', label: 'VS Tododon', description: 'Territorial giant creature battle', imageKey: 'boss_tododon' },
+          { id: 'red_light', label: 'VS Red Light', description: 'Movement punishment gaze battle', imageKey: 'boss_red_light' },
+        ],
+      },
     ],
+  },
+  bossBattle: {
+    bosses: {
+      tododon: { id: 'tododon', label: 'VS Tododon', description: '巨大な縄張り生物との位置取り戦', imageKey: 'boss_tododon' },
+      red_light: { id: 'red_light', label: 'VS Red Light', description: '動くと罰を受ける視線戦', imageKey: 'boss_red_light' },
+    },
   },
   tododon: {
     radius: 420,
@@ -413,12 +423,14 @@ const gameState = {
   currentMutationOptions: [],
   nextEnemyId: 1,
   debug: {
-    selectedPresetId: 'normal',
     enabled: false,
     targetSurvivalTimeOverride: null,
+    bossBattleMode: false,
+    bossType: null,
   },
   startUi: {
     debugMenuOpen: false,
+    bossBattleMenuOpen: false,
   },
   rangeVisibility: {
     visible: false,
@@ -493,12 +505,14 @@ const tododonShopCloseBtn = document.getElementById('tododonShopCloseBtn');
 
 function resetState(nextPhase = gameState.phase || 'start') {
   const preservedDebug = {
-    selectedPresetId: gameState?.debug?.selectedPresetId || 'normal',
     enabled: Boolean(gameState?.debug?.enabled),
     targetSurvivalTimeOverride: Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride) ? gameState.debug.targetSurvivalTimeOverride : null,
+    bossBattleMode: Boolean(gameState?.debug?.bossBattleMode),
+    bossType: typeof gameState?.debug?.bossType === 'string' ? gameState.debug.bossType : null,
   };
   const preservedStartUi = {
     debugMenuOpen: Boolean(gameState?.startUi?.debugMenuOpen),
+    bossBattleMenuOpen: Boolean(gameState?.startUi?.bossBattleMenuOpen),
   };
   Object.assign(gameState, {
     time: 0, runTime: 0, phase: nextPhase, previousPhaseBeforePause: null, isPaused: false, isGameOver: false, keys: {}, enemies: [],
@@ -558,13 +572,15 @@ function resetState(nextPhase = gameState.phase || 'start') {
 
 function startRun() {
   const preservedDebug = {
-    selectedPresetId: gameState?.debug?.selectedPresetId || 'normal',
     enabled: Boolean(gameState?.debug?.enabled),
     targetSurvivalTimeOverride: Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride) ? gameState.debug.targetSurvivalTimeOverride : null,
+    bossBattleMode: Boolean(gameState?.debug?.bossBattleMode),
+    bossType: typeof gameState?.debug?.bossType === 'string' ? gameState.debug.bossType : null,
   };
   resetState('playing');
   gameState.debug = preservedDebug;
   gameState.startUi.debugMenuOpen = false;
+  gameState.startUi.bossBattleMenuOpen = false;
 }
 
 function startEndingEvent() {
@@ -1068,65 +1084,78 @@ function getTargetSurvivalTime() {
   return Math.max(1, base);
 }
 
-function getDebugPresetById(presetId) {
-  const presets = Array.isArray(CONFIG.debug?.presets) ? CONFIG.debug.presets : [];
-  return presets.find(p => p?.id === presetId) || presets[0] || null;
-}
-
-function applyDebugPreset(presetId) {
-  const preset = getDebugPresetById(presetId);
-  const nextId = preset?.id || 'normal';
-  gameState.debug.selectedPresetId = nextId;
-  const value = preset?.targetSurvivalTime;
-  if (Number.isFinite(value)) {
-    gameState.debug.enabled = true;
-    gameState.debug.targetSurvivalTimeOverride = value;
-    return;
-  }
-  if (preset?.startMode) {
-    gameState.debug.enabled = true;
-    gameState.debug.targetSurvivalTimeOverride = null;
-    return;
-  }
-  gameState.debug.enabled = false;
-  gameState.debug.targetSurvivalTimeOverride = null;
-}
-
-function startDebugBossBattle(mode) {
-  if (mode === 'tododon') {
-    startTododonEncounter();
-    return true;
-  }
-  if (mode === 'red_light') {
-    startRedLightEncounter();
-    return true;
-  }
-  return false;
-}
-
-
-function resetDebugToNormal() {
-  applyDebugPreset('normal');
-}
-
-function renderDebugPresetOptions() {
+function renderDebugMenu() {
   if (!debugPresetOptions) return;
-  const presets = Array.isArray(CONFIG.debug?.presets) ? CONFIG.debug.presets : [];
   debugPresetOptions.innerHTML = '';
-  presets.forEach(preset => {
-    if (!preset?.id) return;
-    const optionBtn = document.createElement('button');
-    optionBtn.type = 'button';
-    optionBtn.textContent = preset.label || preset.id;
-    const isSelected = gameState?.debug?.selectedPresetId === preset.id;
-    optionBtn.className = `debug-preset-btn${isSelected ? ' selected' : ''}`;
-    optionBtn.addEventListener('click', () => {
-      if (gameState.phase !== 'start') return;
-      applyDebugPreset(preset.id);
-      renderDebugPresetOptions();
-    });
-    debugPresetOptions.appendChild(optionBtn);
+  const fragment = document.createDocumentFragment();
+
+  const normalBtn = document.createElement('button');
+  normalBtn.type = 'button';
+  normalBtn.className = 'debug-preset-btn';
+  normalBtn.textContent = 'Normal Start';
+  normalBtn.addEventListener('click', () => {
+    if (gameState.phase !== 'start') return;
+    gameState.debug.enabled = false;
+    gameState.debug.targetSurvivalTimeOverride = null;
+    gameState.debug.bossBattleMode = false;
+    gameState.debug.bossType = null;
+    startRun();
+    startModal?.classList.add('hidden');
+    gameOverModal?.classList.add('hidden');
+    clearModal?.classList.add('hidden');
   });
+  fragment.appendChild(normalBtn);
+
+  const isBossOpen = Boolean(gameState?.startUi?.bossBattleMenuOpen);
+  const toggleBossBtn = document.createElement('button');
+  toggleBossBtn.type = 'button';
+  toggleBossBtn.className = 'debug-preset-btn';
+  toggleBossBtn.textContent = `${isBossOpen ? '▼' : '▶'} Boss Battle`;
+  toggleBossBtn.addEventListener('click', () => {
+    if (gameState.phase !== 'start') return;
+    gameState.startUi.bossBattleMenuOpen = !Boolean(gameState?.startUi?.bossBattleMenuOpen);
+    renderDebugMenu();
+  });
+  fragment.appendChild(toggleBossBtn);
+
+  if (isBossOpen) {
+    const bossCards = document.createElement('div');
+    bossCards.className = 'debug-boss-cards';
+    Object.values(CONFIG?.bossBattle?.bosses || {}).forEach(boss => {
+      if (!boss?.id) return;
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'debug-boss-card';
+      const img = gameState?.images?.[boss.imageKey];
+      const hasImage = Boolean(img && img.complete && img.naturalWidth > 0);
+      const media = hasImage
+        ? `<img src="${img?.src || ''}" alt="${boss.label || boss.id}" class="debug-boss-image">`
+        : '<div class="debug-boss-fallback" aria-hidden="true">◎</div>';
+      card.innerHTML = `${media}<div class="debug-boss-info"><h4>${boss.label || boss.id}</h4><p>${boss.description || ''}</p></div>`;
+      card.addEventListener('click', () => startBossBattleMode(boss.id));
+      bossCards.appendChild(card);
+    });
+    fragment.appendChild(bossCards);
+  }
+  debugPresetOptions.appendChild(fragment);
+}
+
+function startBossBattleMode(bossType) {
+  if (gameState.phase !== 'start') return;
+  resetState('playing');
+  gameState.debug.enabled = true;
+  gameState.debug.targetSurvivalTimeOverride = null;
+  gameState.debug.bossBattleMode = true;
+  gameState.debug.bossType = bossType;
+  gameState.startUi.debugMenuOpen = false;
+  gameState.startUi.bossBattleMenuOpen = false;
+  startModal?.classList.add('hidden');
+  gameOverModal?.classList.add('hidden');
+  clearModal?.classList.add('hidden');
+
+  if (bossType === 'tododon') { startDuelBattle(); return; }
+  if (bossType === 'red_light') { startRedLightEncounter(); return; }
+  console.warn('[debug] unknown boss battle type', bossType);
 }
 
 function formatTime(seconds) {
@@ -3695,7 +3724,10 @@ window.addEventListener('keyup', e => {
 
 startNormalBtn?.addEventListener('click', () => {
   if (gameState.phase !== 'start') return;
-  applyDebugPreset('normal');
+  gameState.debug.enabled = false;
+  gameState.debug.targetSurvivalTimeOverride = null;
+  gameState.debug.bossBattleMode = false;
+  gameState.debug.bossType = null;
   startRun();
   startModal?.classList.add('hidden');
   gameOverModal.classList.add('hidden');
@@ -3705,8 +3737,9 @@ startNormalBtn?.addEventListener('click', () => {
 openDebugMenuBtn?.addEventListener('click', () => {
   if (gameState.phase !== 'start') return;
   gameState.startUi.debugMenuOpen = true;
+  gameState.startUi.bossBattleMenuOpen = false;
   syncStartMenuUi();
-  renderDebugPresetOptions();
+  renderDebugMenu();
   syncStartMetaStats();
 });
 
@@ -3716,34 +3749,21 @@ debugBackBtn?.addEventListener('click', () => {
   syncStartMenuUi();
 });
 
-startDebugBtn?.addEventListener('click', () => {
-  if (gameState.phase !== 'start') return;
-  const preset = getDebugPresetById(gameState?.debug?.selectedPresetId || 'normal');
-  applyDebugPreset(preset?.id || 'normal');
-  if (preset?.startMode && startDebugBossBattle(preset.startMode)) {
-    startModal?.classList.add('hidden');
-    gameOverModal.classList.add('hidden');
-    clearModal?.classList.add('hidden');
-    return;
-  }
-  startRun();
-  startModal?.classList.add('hidden');
-  gameOverModal.classList.add('hidden');
-  clearModal?.classList.add('hidden');
-});
 
 restartBtn.addEventListener('click', () => {
   gameState.startUi.debugMenuOpen = false;
+  gameState.startUi.bossBattleMenuOpen = false;
   resetState('start');
   syncStartMenuUi();
-  renderDebugPresetOptions();
+  renderDebugMenu();
   syncStartMetaStats();
 });
 clearRestartBtn?.addEventListener('click', () => {
   gameState.startUi.debugMenuOpen = false;
+  gameState.startUi.bossBattleMenuOpen = false;
   resetState('start');
   syncStartMenuUi();
-  renderDebugPresetOptions();
+  renderDebugMenu();
 });
 eventModal?.addEventListener('click', e => {
   if (gameState.phase !== 'event') return;
@@ -3771,9 +3791,8 @@ tododonShopCloseBtn?.addEventListener('click', () => {
 
 (async function init() {
   resetState('start');
-  applyDebugPreset(gameState?.debug?.selectedPresetId || 'normal');
-  syncStartMenuUi();
-  renderDebugPresetOptions();
+    syncStartMenuUi();
+  renderDebugMenu();
   syncStartMetaStats();
   await preloadImages();
   requestAnimationFrame(loop);
