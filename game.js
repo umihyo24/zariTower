@@ -249,11 +249,11 @@ const CONFIG = {
     maxHp: 120,
     gazeDuration: 3.8,
     blindDuration: 2.2,
-    movementThreshold: 16,
+    movementThreshold: 14,
     punishmentDamage: 18,
-    punishmentSlowDuration: 0.9,
-    punishmentStunDuration: 0.6,
+    punishmentStunDuration: 0.9,
     punishmentFlashDuration: 0.45,
+    dangerPhrase: 'だッ！',
     punishmentKnockbackX: 16,
     punishmentKnockbackY: 12,
     dialogueNormalMinDelay: 0.03,
@@ -550,6 +550,10 @@ function resetState(nextPhase = gameState.phase || 'start') {
       reflectPct: 0,
       facingX: -1,
       contactSlowMultiplier: 1,
+      prevX: CONFIG.canvas.width / 2,
+      prevY: CONFIG.canvas.height / 2,
+      redLightStunTimer: 0,
+      redLightPunishFlashTimer: 0,
     },
     debug: preservedDebug,
     startUi: preservedStartUi,
@@ -831,6 +835,7 @@ function startRedLightEncounter() {
       gazeLockActive: false,
       currentPhraseIndex: 0,
       phraseHoldTimer: 0,
+      punishmentCooldownTimer: 0,
       dialogue: {
         fullText: '',
         visibleText: '',
@@ -2633,9 +2638,47 @@ function updateDuel(dt) {
   if ((t.hp || 0) <= 0) { duel.isComplete = true; unlockTododonShop(); showClear(); }
 }
 
-function getPlayerMovementDelta(previousX, previousY, currentX, currentY) {
-  if (![previousX, previousY, currentX, currentY].every(Number.isFinite)) return 0;
-  return Math.hypot(currentX - previousX, currentY - previousY);
+function getMovementDistance(entity) {
+  if (!entity) return 0;
+
+  const dx = (entity.x || 0) - (entity.prevX || 0);
+  const dy = (entity.y || 0) - (entity.prevY || 0);
+
+  return Math.hypot(dx, dy);
+}
+
+function isRedLightDangerActive() {
+  const duel = gameState.duel;
+  const boss = duel?.boss;
+
+  if (!duel || duel.active !== true) return false;
+  if (duel.bossType !== 'red_light') return false;
+  if (!boss) return false;
+
+  return (
+    boss.phase === 'gaze'
+    && boss.gazeLockActive === true
+    && boss.currentPhrase === CONFIG.redLight.dangerPhrase
+  );
+}
+
+function isPlayerHiddenFromRedLight() {
+  const duel = gameState.duel;
+  const boss = duel?.boss;
+  const player = gameState.player;
+
+  if (!boss || !player) return false;
+
+  if (typeof isObstacleBlockingLine !== 'function') {
+    return false;
+  }
+
+  return isObstacleBlockingLine(
+    boss.x,
+    boss.y,
+    player.x,
+    player.y
+  );
 }
 
 function playRedLightGazeSound() {}
@@ -2643,42 +2686,71 @@ function playRedLightPunishmentSound() {}
 function playRedLightBlindSound() {}
 
 function applyRedLightPunishment() {
-  const p = gameState?.player;
-  const duel = gameState?.duel;
+  const player = gameState.player;
+  const duel = gameState.duel;
   const boss = duel?.boss;
-  const c = CONFIG.redLight || {};
-  if (!p || !boss || duel?.isComplete) return;
-  p.hp = Math.max(0, (p.hp || 0) - (c.punishmentDamage || 0));
-  p.punishmentSlowTimer = Math.max(p.punishmentSlowTimer || 0, c.punishmentSlowDuration || 0);
-  p.redLightStunTimer = Math.max(p.redLightStunTimer || 0, c.punishmentStunDuration || 0);
-  p.redLightPunishFlashTimer = Math.max(p.redLightPunishFlashTimer || 0, c.punishmentFlashDuration || 0);
-  boss.punishmentFlashTimer = Math.max(boss.punishmentFlashTimer || 0, c.punishmentFlashDuration || 0);
-  const dx = (p.x || 0) - (boss.x || 0);
-  const dy = (p.y || 0) - (boss.y || 0);
-  const d = Math.hypot(dx, dy) || 1;
-  p.x = clamp((p.x || 0) + (dx / d) * (c.punishmentKnockbackX || 16), p.radius, CONFIG.canvas.width - p.radius);
-  p.y = clamp((p.y || 0) + (dy / d) * (c.punishmentKnockbackY || 12), p.radius, CONFIG.canvas.height - p.radius);
-  spawnHitParticles(p.x, p.y);
+
+  if (!player || !boss || duel?.isComplete) return;
+
+  player.hp = Math.max(
+    0,
+    player.hp - CONFIG.redLight.punishmentDamage
+  );
+
+  player.redLightStunTimer = CONFIG.redLight.punishmentStunDuration;
+  player.redLightPunishFlashTimer = CONFIG.redLight.punishmentFlashDuration;
+
+  boss.punishmentCooldownTimer = 0.5;
+  boss.punishmentFlashTimer = 0.25;
+
+  spawnHitParticles(player.x, player.y);
   playRedLightPunishmentSound();
+}
+
+function updateRedLightPunishment(dt) {
+  const duel = gameState.duel;
+  const player = gameState.player;
+  const boss = duel?.boss;
+
+  if (!duel || duel.active !== true) return;
+  if (duel.bossType !== 'red_light') return;
+  if (!player || !boss) return;
+
+  boss.punishmentCooldownTimer = Math.max(0, (boss.punishmentCooldownTimer || 0) - dt);
+  if (boss.punishmentCooldownTimer > 0) return;
+
+  const movementDistance = getMovementDistance(player);
+  const dangerActive = isRedLightDangerActive();
+
+  if (!dangerActive) return;
+
+  const hidden = isPlayerHiddenFromRedLight();
+
+  if (hidden) return;
+  if (movementDistance < CONFIG.redLight.movementThreshold) return;
+
+  applyRedLightPunishment();
+
+  console.info('[red_light] punishment triggered', {
+    movementDistance,
+    threshold: CONFIG.redLight.movementThreshold,
+    hidden,
+    phrase: boss.currentPhrase,
+    phase: boss.phase
+  });
 }
 
 function updateRedLightBossBattle(dt) {
   const p = gameState?.player; const duel = gameState?.duel; const boss = duel?.boss; const c = CONFIG.redLight || {};
   if (!p || !duel || !boss) return;
   duel.timer = (duel.timer || 0) + dt;
-  p.redLightStunTimer = Math.max(0, (p.redLightStunTimer || 0) - dt);
   p.redLightPunishFlashTimer = Math.max(0, (p.redLightPunishFlashTimer || 0) - dt);
-  const movementLocked = (p.redLightStunTimer || 0) > 0;
-  if (movementLocked) {
-    p.prevX = p.x;
-    p.prevY = p.y;
+  p.prevX = p.x;
+  p.prevY = p.y;
+  if (p.redLightStunTimer > 0) {
+    p.redLightStunTimer = Math.max(0, p.redLightStunTimer - dt);
   } else {
     updatePlayerMovement(dt);
-  }
-  if ((p.punishmentSlowTimer || 0) > 0) {
-    p.punishmentSlowTimer = Math.max(0, (p.punishmentSlowTimer || 0) - dt);
-    p.x = p.prevX + (p.x - p.prevX) * 0.42;
-    p.y = p.prevY + (p.y - p.prevY) * 0.42;
   }
   updatePlayerAttack(dt);
   updateProjectiles(dt);
@@ -2687,10 +2759,11 @@ function updateRedLightBossBattle(dt) {
   boss.punishmentFlashTimer = Math.max(0, (boss.punishmentFlashTimer || 0) - dt);
   boss.weakPointFlashTimer = Math.max(0, (boss.weakPointFlashTimer || 0) - dt);
   updateRedLightDialogue(dt);
-  const phraseSequence = ['だるまさんが……', 'ころん……', 'だッ！'];
+  const phraseSequence = ['だるまさんが……', 'ころん……', CONFIG.redLight.dangerPhrase];
   if (boss.phase === 'gaze') {
     if (!(boss.dialogue?.active) && !(boss.dialogue?.completed) && (boss.currentPhraseIndex || 0) < phraseSequence.length) {
-      startRedLightPhrase(phraseSequence[boss.currentPhraseIndex]);
+      boss.currentPhrase = phraseSequence[boss.currentPhraseIndex] || '';
+      startRedLightPhrase(boss.currentPhrase);
     }
     if (boss.dialogue?.completed) {
       boss.phraseHoldTimer = Math.max(0, (boss.phraseHoldTimer || 0) - dt);
@@ -2702,6 +2775,7 @@ function updateRedLightBossBattle(dt) {
     boss.gazeLockActive = (boss.currentPhraseIndex || 0) >= phraseSequence.length;
   } else {
     boss.gazeLockActive = false;
+    boss.currentPhrase = '';
   }
   if (boss.phaseTimer <= 0) {
     const nextPhase = boss.phase === 'gaze' ? 'blind' : 'gaze';
@@ -2711,6 +2785,7 @@ function updateRedLightBossBattle(dt) {
     boss.currentPhraseIndex = 0;
     boss.phraseHoldTimer = 0;
     boss.gazeLockActive = false;
+    boss.currentPhrase = '';
     if (boss.dialogue) {
       boss.dialogue.fullText = '';
       boss.dialogue.visibleText = '';
@@ -2722,18 +2797,7 @@ function updateRedLightBossBattle(dt) {
     }
     if (nextPhase === 'gaze') playRedLightGazeSound(); else playRedLightBlindSound();
   }
-  if (boss.phase === 'gaze' && boss.gazeLockActive) {
-    const hidden = isObstacleBlockingLine(boss.x, boss.y, p.x, p.y);
-    if (!hidden) {
-      const delta = getPlayerMovementDelta(boss.lastPlayerX, boss.lastPlayerY, p.x, p.y);
-      boss.movementAccumulator = (boss.movementAccumulator || 0) + delta;
-      if ((boss.movementAccumulator || 0) >= (c.movementThreshold || 16)) {
-        applyRedLightPunishment();
-        boss.movementAccumulator = 0;
-      }
-    } else boss.movementAccumulator = 0;
-  }
-  boss.lastPlayerX = p.x; boss.lastPlayerY = p.y;
+  updateRedLightPunishment(dt);
   if ((p.hp || 0) <= 0) { showGameOver(); return; }
   if ((boss.hp || 0) <= 0) { duel.isComplete = true; boss.phase = 'dead'; if (gameState.world) gameState.world.redLightBossDefeated = true; showClear(); }
 }
@@ -3140,6 +3204,19 @@ function drawHud() {
     ctx.fillText(`Timer: ${timer.toFixed(1)} / ${unlockTime.toFixed(1)}`, 26, 250);
     ctx.fillText(`Exit Unlocked: ${gameState.world?.exitUnlocked}`, 26, 266);
     ctx.fillText(`Should Unlock By Timer: ${shouldUnlockByTimer}`, 26, 282);
+  }
+
+  if (gameState?.debug?.enabled && gameState?.duel?.bossType === 'red_light') {
+    const boss = gameState?.duel?.boss;
+    const danger = isRedLightDangerActive();
+    const hidden = isPlayerHiddenFromRedLight();
+    const moveDist = getMovementDistance(gameState?.player);
+    ctx.fillStyle = 'rgba(255,220,220,0.9)';
+    ctx.font = '12px monospace';
+    ctx.fillText(`Danger Active: ${danger}`, 26, 302);
+    ctx.fillText(`Hidden From Gaze: ${hidden}`, 26, 318);
+    ctx.fillText(`Movement Distance: ${moveDist.toFixed(2)}`, 26, 334);
+    ctx.fillText(`Current Phrase: ${boss?.currentPhrase || ''}`, 26, 350);
   }
 }
 
