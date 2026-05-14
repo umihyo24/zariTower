@@ -824,8 +824,11 @@ function startRedLightEncounter() {
       y: c.bossY,
       phase: 'gaze',
       phaseTimer: c.gazeDuration,
+      currentPhrase: '',
+      isDangerWindow: false,
+      gazeLocked: false,
+      eyeOpen: false,
       vulnerable: false,
-      eyeOpen: true,
       punishmentFlashTimer: 0,
       visibleEyes: 3,
       movementAccumulator: 0,
@@ -834,7 +837,6 @@ function startRedLightEncounter() {
       phaseMessage: '',
       phaseMessageTimer: 0,
       weakPointFlashTimer: 0,
-      gazeLockActive: false,
       currentPhraseIndex: 0,
       phraseHoldTimer: 0,
       punishmentCooldownTimer: 0,
@@ -2747,7 +2749,9 @@ function isRedLightDangerActive() {
 
   return (
     boss.phase === 'gaze'
-    && boss.gazeLockActive === true
+    && boss.isDangerWindow === true
+    && boss.gazeLocked === true
+    && boss.eyeOpen === true
     && boss.currentPhrase === CONFIG.redLight.dangerPhrase
   );
 }
@@ -2780,54 +2784,74 @@ function applyRedLightPunishment() {
   const duel = gameState.duel;
   const boss = duel?.boss;
 
-  if (!player || !boss || duel?.isComplete) return;
+  if (!player || !boss) return;
 
-  player.hp = Math.max(
-    0,
-    player.hp - CONFIG.redLight.punishmentDamage
-  );
+  const damage = Number(CONFIG.redLight?.punishmentDamage) || 0;
+  const currentHp = Number.isFinite(player.hp) ? player.hp : CONFIG.player.maxHp;
 
-  player.redLightStunTimer = CONFIG.redLight.punishmentStunDuration;
-  player.redLightPunishFlashTimer = CONFIG.redLight.punishmentFlashDuration;
+  player.hp = Math.max(0, currentHp - damage);
 
-  boss.punishmentCooldownTimer = 0.5;
+  player.redLightStunTimer =
+    Number(CONFIG.redLight?.punishmentStunDuration) || 0;
+
+  player.redLightPunishFlashTimer =
+    Number(CONFIG.redLight?.punishmentFlashDuration) || 0;
+
+  boss.punishmentCooldownTimer =
+    Number(CONFIG.redLight?.punishmentCooldown) || 0.5;
+
   boss.punishmentFlashTimer = 0.25;
 
   spawnHitParticles(player.x, player.y);
   playRedLightPunishmentSound();
+
+  console.info('[red_light] punishment applied', {
+    damage,
+    beforeHp: currentHp,
+    afterHp: player.hp
+  });
+
+  if (player.hp <= 0) {
+    showGameOver();
+  }
 }
 
 function updateRedLightPunishment(dt) {
   const duel = gameState.duel;
-  const player = gameState.player;
   const boss = duel?.boss;
+  const player = gameState.player;
 
   if (!duel || duel.active !== true) return;
   if (duel.bossType !== 'red_light') return;
-  if (!player || !boss) return;
+  if (!boss || !player) return;
 
-  boss.punishmentCooldownTimer = Math.max(0, (boss.punishmentCooldownTimer || 0) - dt);
+  boss.punishmentCooldownTimer = Math.max(
+    0,
+    (Number(boss.punishmentCooldownTimer) || 0) - dt
+  );
+
+  if (!isRedLightDangerActive()) return;
   if (boss.punishmentCooldownTimer > 0) return;
 
-  const movementDistance = getMovementDistance(player);
-  const dangerActive = isRedLightDangerActive();
-
-  if (!dangerActive) return;
-
   const hidden = isPlayerHiddenFromRedLight();
-
   if (hidden) return;
-  if (movementDistance < CONFIG.redLight.movementThreshold) return;
 
-  applyRedLightPunishment();
+  const movedDistance = getMovementDistance(player);
+  const threshold = Number(CONFIG.redLight?.movementThreshold) || 14;
+
+  if (movedDistance < threshold) return;
 
   console.info('[red_light] punishment triggered', {
-    movementDistance,
-    threshold: CONFIG.redLight.movementThreshold,
+    movedDistance,
+    threshold,
     hidden,
     phrase: boss.currentPhrase,
-    phase: boss.phase
+    phase: boss.phase,
+    eyeOpen: boss.eyeOpen,
+    isDangerWindow: boss.isDangerWindow
   });
+
+  applyRedLightPunishment();
 }
 
 function updateRedLightBossBattle(dt) {
@@ -2862,20 +2886,32 @@ function updateRedLightBossBattle(dt) {
         boss.dialogue.completed = false;
       }
     }
-    boss.gazeLockActive = (boss.currentPhraseIndex || 0) >= phraseSequence.length;
+    const phrase = boss.currentPhrase || '';
+    const dangerPhrase = CONFIG.redLight?.dangerPhrase;
+    const inDangerPhrase = phrase === dangerPhrase;
+    boss.isDangerWindow = inDangerPhrase;
+    boss.gazeLocked = inDangerPhrase;
+    boss.eyeOpen = inDangerPhrase;
+    boss.vulnerable = false;
   } else {
-    boss.gazeLockActive = false;
     boss.currentPhrase = '';
+    boss.isDangerWindow = false;
+    boss.gazeLocked = false;
+    boss.eyeOpen = false;
+    boss.vulnerable = true;
   }
   if (boss.phaseTimer <= 0) {
     const nextPhase = boss.phase === 'gaze' ? 'blind' : 'gaze';
-    boss.phase = nextPhase; boss.eyeOpen = nextPhase === 'gaze'; boss.vulnerable = nextPhase === 'blind';
+    boss.phase = nextPhase;
     boss.phaseTimer = nextPhase === 'gaze' ? (c.gazeDuration || 0) : (c.blindDuration || 0);
     boss.movementAccumulator = 0;
     boss.currentPhraseIndex = 0;
     boss.phraseHoldTimer = 0;
-    boss.gazeLockActive = false;
     boss.currentPhrase = '';
+    boss.isDangerWindow = false;
+    boss.gazeLocked = false;
+    boss.eyeOpen = false;
+    boss.vulnerable = nextPhase === 'blind';
     if (boss.dialogue) {
       boss.dialogue.fullText = '';
       boss.dialogue.visibleText = '';
@@ -3147,7 +3183,7 @@ function renderRedLightBossBattle() {
   if (!boss) return;
   renderRedLightBoss(ctx);
   ctx.save();
-  const gazeAlpha = boss.phase === 'gaze' ? (c.gazeOverlayAlpha || 0) : 0;
+  const gazeAlpha = isRedLightDangerActive() ? (c.gazeOverlayAlpha || 0) : 0;
   ctx.fillStyle = `rgba(140,20,20,${gazeAlpha})`;
   ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
   if ((boss.punishmentFlashTimer || 0) > 0) {
@@ -3303,10 +3339,14 @@ function drawHud() {
     const moveDist = getMovementDistance(gameState?.player);
     ctx.fillStyle = 'rgba(255,220,220,0.9)';
     ctx.font = '12px monospace';
-    ctx.fillText(`Danger Active: ${danger}`, 26, 302);
-    ctx.fillText(`Hidden From Gaze: ${hidden}`, 26, 318);
-    ctx.fillText(`Movement Distance: ${moveDist.toFixed(2)}`, 26, 334);
-    ctx.fillText(`Current Phrase: ${boss?.currentPhrase || ''}`, 26, 350);
+    ctx.fillText(`Phrase: ${boss?.currentPhrase || ''}`, 26, 302);
+    ctx.fillText(`Danger Window: ${boss?.isDangerWindow === true}`, 26, 318);
+    ctx.fillText(`Eye Open: ${boss?.eyeOpen === true}`, 26, 334);
+    ctx.fillText(`Gaze Locked: ${boss?.gazeLocked === true}`, 26, 350);
+    ctx.fillText(`Hidden: ${hidden}`, 26, 366);
+    ctx.fillText(`Movement Distance: ${moveDist.toFixed(2)}`, 26, 382);
+    ctx.fillText(`Player HP: ${Math.ceil(gameState?.player?.hp || 0)} / ${Math.ceil(gameState?.player?.maxHp || 0)}`, 26, 398);
+    ctx.fillText(`Danger Active: ${danger}`, 26, 414);
   }
   if (gameState?.duel?.active === true || gameState?.duel?.bossType) {
     const boss = getActiveBossTarget();
