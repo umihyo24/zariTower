@@ -2130,14 +2130,7 @@ function updateProjectiles(dt) {
     });
     const duel = gameState?.phase === 'duel' ? gameState?.duel : null;
     const bossTarget = getActiveBossTarget();
-    let bossHit = false;
-    if (bossTarget && !projectileHitIds.has('active_boss')) {
-      const dx = (Number(proj.x) || 0) - (Number(bossTarget.x) || 0);
-      const dy = (Number(proj.y) || 0) - (Number(bossTarget.y) || 0);
-      const distanceSq = dx * dx + dy * dy;
-      const collisionRadius = (Number(proj.radius) || 0) + (Number(bossTarget.radius) || 0);
-      bossHit = distanceSq <= collisionRadius * collisionRadius;
-    }
+    const bossHit = updateProjectileBossCollision(proj, bossTarget, projectileHitIds);
     const waveHit = duel?.waveProjectiles?.find((b, i) => b?.alive !== false && !projectileHitIds.has(`wave_${i}`) && distance(proj, b) <= proj.radius + b.radius);
     const hitEnemyOrBullet = hitEnemy || bossHit || waveHit;
     if (hitEnemyOrBullet) {
@@ -2176,10 +2169,10 @@ function updateProjectiles(dt) {
 
       spawnHitParticles(proj.x, proj.y);
       if (hitEnemy === bossTarget) {
-        damageBossTarget(proj.damage, 'projectile');
+        damageActiveBoss(proj.damage, 'projectile');
         projectileHitIds.add('active_boss');
       } else if (duel && hitEnemy.id === 'duel_tododon') {
-        damageBossTarget(proj.damage, 'projectile');
+        damageActiveBoss(proj.damage, 'projectile');
       }
       projectileHitIds.add(hitEnemy.id);
       proj.pierceLeft = (Number.isFinite(proj.pierceLeft) ? proj.pierceLeft : 0) - 1;
@@ -2190,6 +2183,17 @@ function updateProjectiles(dt) {
   });
 
   gameState.projectiles = projectiles.filter(proj => !proj._remove);
+}
+
+
+function updateProjectileBossCollision(projectile, bossTarget = getActiveBossTarget(), hitIds = null) {
+  if (!projectile || !bossTarget) return null;
+  if (hitIds instanceof Set && hitIds.has('active_boss')) return null;
+  const dx = (Number(projectile.x) || 0) - (Number(bossTarget.x) || 0);
+  const dy = (Number(projectile.y) || 0) - (Number(bossTarget.y) || 0);
+  const hitRadius = (Number(projectile.radius) || 0) + (Number(bossTarget.radius) || 0);
+  if (dx * dx + dy * dy > hitRadius * hitRadius) return null;
+  return bossTarget;
 }
 
 function updateParticles(dt) {
@@ -2652,7 +2656,7 @@ function updateDuel(dt) {
       const distanceSq = dx * dx + dy * dy;
       const collisionRadius = (Number(s.radius) || 0) + (Number(boss.radius) || 0);
       if (distanceSq <= collisionRadius * collisionRadius) {
-        damageBossTarget(s.damage || 0, 'manual');
+        damageActiveBoss(Number(s.damage) || Number(c.manualShotDamage) || 0, 'manual');
         s.life = 0;
       }
     }
@@ -2710,7 +2714,7 @@ function getActiveBossTarget() {
   return null;
 }
 
-function damageBossTarget(amount, source = 'projectile') {
+function damageActiveBoss(amount, source = 'unknown') {
   const target = getActiveBossTarget();
   if (!target || !target.ref) return false;
   const duel = gameState.duel;
@@ -2723,7 +2727,8 @@ function damageBossTarget(amount, source = 'projectile') {
   if (target.bossType === 'red_light') {
     const gazeMult = Number.isFinite(CONFIG.redLight?.gazeDamageMultiplier) ? CONFIG.redLight.gazeDamageMultiplier : 0;
     const vulnerableMult = Number.isFinite(CONFIG.redLight?.vulnerableDamageMultiplier) ? CONFIG.redLight.vulnerableDamageMultiplier : 1.8;
-    mult = boss.phase === 'blind' ? vulnerableMult : gazeMult;
+    const vulnerable = boss.vulnerable === true || boss.phase === 'blind';
+    mult = vulnerable ? vulnerableMult : gazeMult;
   }
   if (target.bossType === 'tododon' && (boss.state === 'dead' || duel?.isComplete || duel?.active !== true)) return false;
   const finalDamage = Math.max(0, normalizedAmount * Math.max(0, mult));
@@ -2736,6 +2741,8 @@ function damageBossTarget(amount, source = 'projectile') {
   if (boss.hp <= 0) completeBossEncounter(target.bossType);
   return true;
 }
+
+function damageBossTarget(amount, source = 'projectile') { return damageActiveBoss(amount, source); }
 
 function isActiveBossDamageable() {
   const target = getActiveBossTarget();
@@ -3415,7 +3422,13 @@ function drawHud() {
       ctx.font = '12px monospace';
       ctx.fillText(`Boss: ${boss.bossType}`, 26, 366);
       ctx.fillText(`Boss HP: ${Math.ceil(boss.hp)} / ${Math.ceil(boss.maxHp)}`, 26, 382);
-      ctx.fillText(`Damageable: ${isActiveBossDamageable()}`, 26, 398);
+      const p = gameState?.player;
+      const inRange = p ? distance({ x: boss.x, y: boss.y }, p) <= (Number(p.attackRange) || Number(CONFIG.player?.attackRange) || 0) : false;
+      ctx.fillText(`Boss Target Exists: ${Boolean(boss)}`, 26, 398);
+      ctx.fillText(`Boss Type: ${boss.bossType}`, 26, 414);
+      ctx.fillText(`Boss HP: ${Math.ceil(boss.hp)} / ${Math.ceil(boss.maxHp)}`, 26, 430);
+      ctx.fillText(`Damageable: ${isActiveBossDamageable()}`, 26, 446);
+      ctx.fillText(`Boss In Attack Range: ${inRange}`, 26, 462);
     }
   }
 }
