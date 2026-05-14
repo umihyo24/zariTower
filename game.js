@@ -233,6 +233,25 @@ const CONFIG = {
     darknessDistanceInfluence: 0.42,
     darknessVignetteAlpha: 0.22,
   },
+  redLight: {
+    maxHp: 120,
+    gazeDuration: 3.8,
+    blindDuration: 2.2,
+    movementThreshold: 16,
+    punishmentDamage: 18,
+    punishmentSlowDuration: 1.1,
+    punishmentFlashDuration: 0.45,
+    eyeOpenScale: 1,
+    eyeClosedScale: 0.72,
+    gazeOverlayAlpha: 0.18,
+    punishmentOverlayAlpha: 0.38,
+    bossX: 760,
+    bossY: 210,
+    bodyRadius: 130,
+    weakPointRadius: 58,
+    vulnerabilityMultiplier: 1.8,
+    lineOfSightGrace: 0.08,
+  },
 
   duel: {
     arenaWidth: 960,
@@ -736,6 +755,51 @@ function startDuelBattle() {
       manualShotCooldownTimer: 0,
     },
     waveProjectiles: [],
+    isComplete: false,
+  };
+}
+
+function startRedLightEncounter() {
+  const p = gameState?.player;
+  const c = CONFIG.redLight || {};
+  if (!p) return;
+  gameState.phase = 'duel';
+  gameState.isPaused = false;
+  gameState.event = null;
+  gameState.pendingEvent = null;
+  gameState.enemies = [];
+  gameState.projectiles = [];
+  gameState.particles = [];
+  gameState.manualShots = [];
+  if (Array.isArray(gameState.enemyBullets)) gameState.enemyBullets = [];
+  if (gameState.world) {
+    gameState.world.exitUnlocked = false;
+    gameState.world.availableExits = {};
+  }
+  p.x = clamp(CONFIG.canvas.width * 0.5, p.radius, CONFIG.canvas.width - p.radius);
+  p.y = clamp(CONFIG.canvas.height - 90, p.radius, CONFIG.canvas.height - p.radius);
+  gameState.duel = {
+    active: true,
+    bossType: 'red_light',
+    boss: {
+      hp: c.maxHp,
+      maxHp: c.maxHp,
+      x: c.bossX,
+      y: c.bossY,
+      phase: 'gaze',
+      phaseTimer: c.gazeDuration,
+      vulnerable: false,
+      eyeOpen: true,
+      punishmentFlashTimer: 0,
+      visibleEyes: 3,
+      movementAccumulator: 0,
+      lastPlayerX: p.x,
+      lastPlayerY: p.y,
+      phaseMessage: '',
+      phaseMessageTimer: 0,
+      weakPointFlashTimer: 0,
+    },
+    timer: 0,
     isComplete: false,
   };
 }
@@ -1428,8 +1492,7 @@ function startBossEncounterFromGate(targetZoneId) {
   if (targetZoneId === 'red_light_gate' || targetZoneId === 'red_light_duel') {
     if (world.redLightBossTriggered) return;
     world.redLightBossTriggered = true;
-    gameState.duel = gameState.duel || {};
-    gameState.duel.bossType = 'red_light';
+    startRedLightEncounter();
   }
 }
 
@@ -1484,8 +1547,8 @@ function completeZoneTransition() {
   if (targetZoneId === 'red_light_gate' || nextZone.boss === 'red_light') {
     if (world.redLightBossTriggered) return;
     world.redLightBossTriggered = true;
-    gameState.duel = gameState.duel || {};
-    gameState.duel.bossType = 'red_light';
+    startRedLightEncounter();
+    return;
   }
 
   const transitionDirection = world.transitionDirection;
@@ -1977,6 +2040,14 @@ function updateProjectiles(dt) {
         const mult = (duel?.tododon?.state === 'vulnerable') ? (CONFIG.duel?.tododonVulnerableDamageMultiplier || 1) : (CONFIG.duel?.tododonArmorDamageMultiplier || 0.15);
         duel.tododon.hp -= proj.damage * mult;
       }
+      if (duel?.bossType === 'red_light') {
+        const boss = duel?.boss;
+        if (boss && distance(proj, boss) <= proj.radius + (CONFIG.redLight?.weakPointRadius || 58)) {
+          const mult = boss.vulnerable ? (CONFIG.redLight?.vulnerabilityMultiplier || 1) : 0.08;
+          boss.hp -= proj.damage * mult;
+          boss.weakPointFlashTimer = 0.18;
+        }
+      }
       projectileHitIds.add(hitEnemy.id);
       proj.pierceLeft = (Number.isFinite(proj.pierceLeft) ? proj.pierceLeft : 0) - 1;
       if (proj.pierceLeft < 0) {
@@ -2446,13 +2517,73 @@ function updateDuel(dt) {
   if ((t.hp || 0) <= 0) { duel.isComplete = true; unlockTododonShop(); showClear(); }
 }
 
-function updateRedLightBossBattle(dt) {
+function getPlayerMovementDelta(previousX, previousY, currentX, currentY) {
+  if (![previousX, previousY, currentX, currentY].every(Number.isFinite)) return 0;
+  return Math.hypot(currentX - previousX, currentY - previousY);
+}
+
+function playRedLightGazeSound() {}
+function playRedLightPunishmentSound() {}
+function playRedLightBlindSound() {}
+
+function applyRedLightPunishment() {
   const p = gameState?.player;
-  if (!p) return;
+  const duel = gameState?.duel;
+  const boss = duel?.boss;
+  const c = CONFIG.redLight || {};
+  if (!p || !boss || duel?.isComplete) return;
+  p.hp = Math.max(0, (p.hp || 0) - (c.punishmentDamage || 0));
+  p.punishmentSlowTimer = Math.max(p.punishmentSlowTimer || 0, c.punishmentSlowDuration || 0);
+  boss.punishmentFlashTimer = Math.max(boss.punishmentFlashTimer || 0, c.punishmentFlashDuration || 0);
+  const dx = (p.x || 0) - (boss.x || 0);
+  const dy = (p.y || 0) - (boss.y || 0);
+  const d = Math.hypot(dx, dy) || 1;
+  p.x = clamp((p.x || 0) + (dx / d) * 16, p.radius, CONFIG.canvas.width - p.radius);
+  p.y = clamp((p.y || 0) + (dy / d) * 12, p.radius, CONFIG.canvas.height - p.radius);
+  spawnHitParticles(p.x, p.y);
+  playRedLightPunishmentSound();
+}
+
+function updateRedLightBossBattle(dt) {
+  const p = gameState?.player; const duel = gameState?.duel; const boss = duel?.boss; const c = CONFIG.redLight || {};
+  if (!p || !duel || !boss) return;
+  duel.timer = (duel.timer || 0) + dt;
   updatePlayerMovement(dt);
+  if ((p.punishmentSlowTimer || 0) > 0) {
+    p.punishmentSlowTimer = Math.max(0, (p.punishmentSlowTimer || 0) - dt);
+    p.x = p.prevX + (p.x - p.prevX) * 0.42;
+    p.y = p.prevY + (p.y - p.prevY) * 0.42;
+  }
   updatePlayerAttack(dt);
   updateProjectiles(dt);
   updateParticles(dt);
+  boss.phaseTimer = Math.max(0, (boss.phaseTimer || 0) - dt);
+  boss.punishmentFlashTimer = Math.max(0, (boss.punishmentFlashTimer || 0) - dt);
+  boss.phaseMessageTimer = Math.max(0, (boss.phaseMessageTimer || 0) - dt);
+  boss.weakPointFlashTimer = Math.max(0, (boss.weakPointFlashTimer || 0) - dt);
+  if (boss.phaseTimer <= 0) {
+    const nextPhase = boss.phase === 'gaze' ? 'blind' : 'gaze';
+    boss.phase = nextPhase; boss.eyeOpen = nextPhase === 'gaze'; boss.vulnerable = nextPhase === 'blind';
+    boss.phaseTimer = nextPhase === 'gaze' ? (c.gazeDuration || 0) : (c.blindDuration || 0);
+    boss.movementAccumulator = 0;
+    boss.phaseMessage = nextPhase === 'gaze' ? 'だるまさんが……\nころん……\nだッ！' : '……';
+    boss.phaseMessageTimer = 1.6;
+    if (nextPhase === 'gaze') playRedLightGazeSound(); else playRedLightBlindSound();
+  }
+  if (boss.phase === 'gaze') {
+    const hidden = isObstacleBlockingLine(boss.x, boss.y, p.x, p.y);
+    if (!hidden) {
+      const delta = getPlayerMovementDelta(boss.lastPlayerX, boss.lastPlayerY, p.x, p.y);
+      boss.movementAccumulator = (boss.movementAccumulator || 0) + delta;
+      if ((boss.movementAccumulator || 0) >= (c.movementThreshold || 16)) {
+        applyRedLightPunishment();
+        boss.movementAccumulator = 0;
+      }
+    } else boss.movementAccumulator = 0;
+  }
+  boss.lastPlayerX = p.x; boss.lastPlayerY = p.y;
+  if ((p.hp || 0) <= 0) { showGameOver(); return; }
+  if ((boss.hp || 0) <= 0) { duel.isComplete = true; boss.phase = 'dead'; if (gameState.world) gameState.world.redLightBossDefeated = true; showClear(); }
 }
 
 function revealRangeVisibility() {
@@ -2706,19 +2837,59 @@ function drawDuelTododon() {
   if (t.cannon?.warning || t.cannon?.active) { ctx.save(); ctx.fillStyle = t.cannon.warning ? 'rgba(255,190,120,0.22)' : 'rgba(255,110,80,0.45)'; ctx.fillRect(0, (t.cannon.y || 0) - (c.cannonWidth || 86) / 2, CONFIG.canvas.width, c.cannonWidth || 86); ctx.restore(); }
 }
 function renderRedLightBossBattle() {
-  const p = gameState?.player;
-  if (!p) return;
+  const duel = gameState?.duel; const boss = duel?.boss; const c = CONFIG.redLight || {};
+  if (!boss) return;
+  renderRedLightBoss(ctx);
   ctx.save();
-  ctx.fillStyle = 'rgba(180,40,40,0.2)';
+  const gazeAlpha = boss.phase === 'gaze' ? (c.gazeOverlayAlpha || 0) : 0;
+  ctx.fillStyle = `rgba(140,20,20,${gazeAlpha})`;
   ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
-  ctx.fillStyle = '#ffd0d0';
-  ctx.font = 'bold 26px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('だるまさんが……ころん……だッ！', CONFIG.canvas.width * 0.5, 54);
+  if ((boss.punishmentFlashTimer || 0) > 0) {
+    const flashPct = clamp((boss.punishmentFlashTimer || 0) / (c.punishmentFlashDuration || 0.45), 0, 1);
+    ctx.fillStyle = `rgba(220,30,30,${(c.punishmentOverlayAlpha || 0) * flashPct})`;
+    ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+  }
+  const vg = ctx.createRadialGradient(CONFIG.canvas.width * 0.5, CONFIG.canvas.height * 0.5, 120, CONFIG.canvas.width * 0.5, CONFIG.canvas.height * 0.5, 560);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(30,0,0,0.26)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
+  if ((boss.phaseMessageTimer || 0) > 0 && boss.phaseMessage) {
+    ctx.fillStyle = '#ffd0d0'; ctx.font = 'bold 24px sans-serif'; ctx.textAlign = 'center';
+    const lines = String(boss.phaseMessage).split('\n');
+    lines.forEach((line, i) => ctx.fillText(line, CONFIG.canvas.width * 0.5, 52 + i * 28));
+  }
   ctx.restore();
+}
+function renderRedLightBoss(drawCtx) {
+  const duel = gameState?.duel; const boss = duel?.boss; const c = CONFIG.redLight || {};
+  if (!boss || !drawCtx) return;
+  const bodyRadius = c.bodyRadius || 130;
+  const pulse = 1 + Math.sin((gameState.time || 0) * 1.2) * 0.025;
+  drawCtx.save();
+  const img = getBossImage('red_light');
+  if (img) {
+    const s = bodyRadius * 2.2;
+    drawCtx.globalAlpha = 0.9;
+    drawCtx.drawImage(img, (boss.x || 0) - s * 0.5, (boss.y || 0) - s * 0.5, s, s);
+  } else {
+    drawCtx.fillStyle = 'rgba(12,8,14,0.85)';
+    drawCtx.beginPath(); drawCtx.arc(boss.x, boss.y, bodyRadius * pulse, 0, Math.PI * 2); drawCtx.fill();
+  }
+  const eyeScale = boss.eyeOpen ? (c.eyeOpenScale || 1) : (c.eyeClosedScale || 0.72);
+  const er = (c.weakPointRadius || 58) * eyeScale;
+  drawCtx.shadowBlur = 28; drawCtx.shadowColor = 'rgba(255,60,60,0.65)';
+  drawCtx.fillStyle = boss.vulnerable ? 'rgba(255,120,120,0.95)' : 'rgba(255,40,40,0.95)';
+  drawCtx.beginPath(); drawCtx.ellipse(boss.x, boss.y, er * 1.1, er * (boss.eyeOpen ? 0.75 : 0.22), 0, 0, Math.PI * 2); drawCtx.fill();
+  if ((boss.weakPointFlashTimer || 0) > 0) { drawCtx.strokeStyle = 'rgba(255,240,220,0.9)'; drawCtx.lineWidth = 3; drawCtx.stroke(); }
+  drawCtx.restore();
 }
 function drawBossActionText() { const t = gameState?.duel?.tododon; if (!t || !t.actionText) return; const w = CONFIG.canvas.width - 120; const h = 38; const x = 60; const y = CONFIG.canvas.height - 60; const alpha = t.actionTextTimer < 0.3 ? clamp(t.actionTextTimer / 0.3, 0, 1) : 1; ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = 'rgba(8,14,24,0.58)'; ctx.fillRect(x, y, w, h); ctx.strokeStyle = 'rgba(220,236,255,0.35)'; ctx.strokeRect(x, y, w, h); ctx.fillStyle = '#ecf6ff'; ctx.font = '18px sans-serif'; ctx.fillText(t.actionText, x + 16, y + 25); ctx.restore(); }
 function drawDuelBossHpBar() {
+  if (gameState?.duel?.bossType === 'red_light') {
+    const b = gameState?.duel?.boss; if (!b || gameState.phase !== 'duel') return;
+    const w = 520; const h = 18; const x = (CONFIG.canvas.width - w) / 2; const y = 18; const pct = clamp((b.hp || 0) / (b.maxHp || 1), 0, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x, y, w, h); ctx.fillStyle = '#ff7272'; ctx.fillRect(x, y, w * pct, h); ctx.strokeStyle = '#ffd5d5'; ctx.strokeRect(x, y, w, h); ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('Red Light', x, y - 6); return;
+  }
   const t = gameState?.duel?.tododon; if (!t || gameState.phase !== 'duel') return;
   const w = 520; const h = 18; const x = (CONFIG.canvas.width - w) / 2; const y = 18; const pct = clamp((t.hp||0)/(t.maxHp||1),0,1);
   ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x,y,w,h); ctx.fillStyle = '#8ed0ff'; ctx.fillRect(x,y,w*pct,h); ctx.strokeStyle='#dff4ff'; ctx.strokeRect(x,y,w,h); ctx.fillStyle='#fff'; ctx.font='bold 16px sans-serif'; ctx.fillText('Tododon', x, y-6);
