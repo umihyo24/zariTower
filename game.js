@@ -219,6 +219,8 @@ const CONFIG = {
       { id: 'tododon_60', label: 'Tododon in 60s', targetSurvivalTime: 60 },
       { id: 'tododon_30', label: 'Tododon in 30s', targetSurvivalTime: 30 },
       { id: 'tododon_3', label: 'Tododon in 3s', targetSurvivalTime: 3 },
+      { id: 'red_light_debug', label: 'Red Light Debug', startMode: 'red_light' },
+      { id: 'tododon_debug', label: 'Tododon Debug', startMode: 'tododon' },
     ],
   },
   tododon: {
@@ -239,8 +241,20 @@ const CONFIG = {
     blindDuration: 2.2,
     movementThreshold: 16,
     punishmentDamage: 18,
-    punishmentSlowDuration: 1.1,
+    punishmentSlowDuration: 0.9,
+    punishmentStunDuration: 0.6,
     punishmentFlashDuration: 0.45,
+    punishmentKnockbackX: 16,
+    punishmentKnockbackY: 12,
+    dialogueNormalMinDelay: 0.03,
+    dialogueNormalMaxDelay: 0.12,
+    dialoguePauseMinDelay: 0.15,
+    dialoguePauseMaxDelay: 0.35,
+    dialogueDramaticMinDelay: 0.11,
+    dialogueDramaticMaxDelay: 0.2,
+    dialogueHoldAfterComplete: 0.4,
+    dialogueBoxHeight: 52,
+    dialogueBottomMargin: 18,
     eyeOpenScale: 1,
     eyeClosedScale: 0.72,
     gazeOverlayAlpha: 0.18,
@@ -798,10 +812,66 @@ function startRedLightEncounter() {
       phaseMessage: '',
       phaseMessageTimer: 0,
       weakPointFlashTimer: 0,
+      gazeLockActive: false,
+      currentPhraseIndex: 0,
+      phraseHoldTimer: 0,
+      dialogue: {
+        fullText: '',
+        visibleText: '',
+        charIndex: 0,
+        charTimer: 0,
+        nextCharDelay: 0,
+        active: false,
+        completed: false,
+      },
     },
     timer: 0,
     isComplete: false,
   };
+}
+
+function getRedLightCharDelay(char) {
+  const c = CONFIG.redLight || {};
+  const normalMin = Number(c.dialogueNormalMinDelay) || 0.03;
+  const normalMax = Number(c.dialogueNormalMaxDelay) || 0.12;
+  const pauseMin = Number(c.dialoguePauseMinDelay) || 0.15;
+  const pauseMax = Number(c.dialoguePauseMaxDelay) || 0.35;
+  const dramaticMin = Number(c.dialogueDramaticMinDelay) || 0.11;
+  const dramaticMax = Number(c.dialogueDramaticMaxDelay) || 0.2;
+  if (char === '…' || char === '.' || char === '。' || char === '！' || char === '!' || char === '？' || char === '?') return rand(pauseMin, pauseMax);
+  if (char === 'ッ') return rand(dramaticMin, dramaticMax);
+  return rand(normalMin, normalMax);
+}
+
+function startRedLightPhrase(text) {
+  const dialogue = gameState?.duel?.boss?.dialogue;
+  if (!dialogue) return;
+  dialogue.fullText = String(text || '');
+  dialogue.visibleText = '';
+  dialogue.charIndex = 0;
+  dialogue.charTimer = 0;
+  dialogue.nextCharDelay = getRedLightCharDelay(dialogue.fullText.charAt(0));
+  dialogue.active = true;
+  dialogue.completed = false;
+}
+
+function updateRedLightDialogue(dt) {
+  const boss = gameState?.duel?.boss;
+  const dialogue = boss?.dialogue;
+  if (!dialogue || !dialogue.active || dialogue.completed) return;
+  dialogue.charTimer += dt;
+  while (dialogue.charTimer >= dialogue.nextCharDelay && !dialogue.completed) {
+    dialogue.charTimer -= dialogue.nextCharDelay;
+    dialogue.charIndex += 1;
+    dialogue.visibleText = dialogue.fullText.slice(0, dialogue.charIndex);
+    if (dialogue.charIndex >= dialogue.fullText.length) {
+      dialogue.completed = true;
+      dialogue.active = false;
+      boss.phraseHoldTimer = Number(CONFIG.redLight?.dialogueHoldAfterComplete) || 0.4;
+      break;
+    }
+    dialogue.nextCharDelay = getRedLightCharDelay(dialogue.fullText.charAt(dialogue.charIndex));
+  }
 }
 
 function setBossActionText(text = '', timer = 0) { const t = gameState?.duel?.tododon; if (!t) return; t.actionText = text; t.actionTextTimer = Math.max(0, Number(timer) || 0); }
@@ -1013,8 +1083,25 @@ function applyDebugPreset(presetId) {
     gameState.debug.targetSurvivalTimeOverride = value;
     return;
   }
+  if (preset?.startMode) {
+    gameState.debug.enabled = true;
+    gameState.debug.targetSurvivalTimeOverride = null;
+    return;
+  }
   gameState.debug.enabled = false;
   gameState.debug.targetSurvivalTimeOverride = null;
+}
+
+function startDebugBossBattle(mode) {
+  if (mode === 'tododon') {
+    startTododonEncounter();
+    return true;
+  }
+  if (mode === 'red_light') {
+    startRedLightEncounter();
+    return true;
+  }
+  return false;
 }
 
 
@@ -2534,12 +2621,14 @@ function applyRedLightPunishment() {
   if (!p || !boss || duel?.isComplete) return;
   p.hp = Math.max(0, (p.hp || 0) - (c.punishmentDamage || 0));
   p.punishmentSlowTimer = Math.max(p.punishmentSlowTimer || 0, c.punishmentSlowDuration || 0);
+  p.redLightStunTimer = Math.max(p.redLightStunTimer || 0, c.punishmentStunDuration || 0);
+  p.redLightPunishFlashTimer = Math.max(p.redLightPunishFlashTimer || 0, c.punishmentFlashDuration || 0);
   boss.punishmentFlashTimer = Math.max(boss.punishmentFlashTimer || 0, c.punishmentFlashDuration || 0);
   const dx = (p.x || 0) - (boss.x || 0);
   const dy = (p.y || 0) - (boss.y || 0);
   const d = Math.hypot(dx, dy) || 1;
-  p.x = clamp((p.x || 0) + (dx / d) * 16, p.radius, CONFIG.canvas.width - p.radius);
-  p.y = clamp((p.y || 0) + (dy / d) * 12, p.radius, CONFIG.canvas.height - p.radius);
+  p.x = clamp((p.x || 0) + (dx / d) * (c.punishmentKnockbackX || 16), p.radius, CONFIG.canvas.width - p.radius);
+  p.y = clamp((p.y || 0) + (dy / d) * (c.punishmentKnockbackY || 12), p.radius, CONFIG.canvas.height - p.radius);
   spawnHitParticles(p.x, p.y);
   playRedLightPunishmentSound();
 }
@@ -2548,7 +2637,15 @@ function updateRedLightBossBattle(dt) {
   const p = gameState?.player; const duel = gameState?.duel; const boss = duel?.boss; const c = CONFIG.redLight || {};
   if (!p || !duel || !boss) return;
   duel.timer = (duel.timer || 0) + dt;
-  updatePlayerMovement(dt);
+  p.redLightStunTimer = Math.max(0, (p.redLightStunTimer || 0) - dt);
+  p.redLightPunishFlashTimer = Math.max(0, (p.redLightPunishFlashTimer || 0) - dt);
+  const movementLocked = (p.redLightStunTimer || 0) > 0;
+  if (movementLocked) {
+    p.prevX = p.x;
+    p.prevY = p.y;
+  } else {
+    updatePlayerMovement(dt);
+  }
   if ((p.punishmentSlowTimer || 0) > 0) {
     p.punishmentSlowTimer = Math.max(0, (p.punishmentSlowTimer || 0) - dt);
     p.x = p.prevX + (p.x - p.prevX) * 0.42;
@@ -2559,18 +2656,44 @@ function updateRedLightBossBattle(dt) {
   updateParticles(dt);
   boss.phaseTimer = Math.max(0, (boss.phaseTimer || 0) - dt);
   boss.punishmentFlashTimer = Math.max(0, (boss.punishmentFlashTimer || 0) - dt);
-  boss.phaseMessageTimer = Math.max(0, (boss.phaseMessageTimer || 0) - dt);
   boss.weakPointFlashTimer = Math.max(0, (boss.weakPointFlashTimer || 0) - dt);
+  updateRedLightDialogue(dt);
+  const phraseSequence = ['だるまさんが……', 'ころん……', 'だッ！'];
+  if (boss.phase === 'gaze') {
+    if (!(boss.dialogue?.active) && !(boss.dialogue?.completed) && (boss.currentPhraseIndex || 0) < phraseSequence.length) {
+      startRedLightPhrase(phraseSequence[boss.currentPhraseIndex]);
+    }
+    if (boss.dialogue?.completed) {
+      boss.phraseHoldTimer = Math.max(0, (boss.phraseHoldTimer || 0) - dt);
+      if (boss.phraseHoldTimer <= 0) {
+        boss.currentPhraseIndex += 1;
+        boss.dialogue.completed = false;
+      }
+    }
+    boss.gazeLockActive = (boss.currentPhraseIndex || 0) >= phraseSequence.length;
+  } else {
+    boss.gazeLockActive = false;
+  }
   if (boss.phaseTimer <= 0) {
     const nextPhase = boss.phase === 'gaze' ? 'blind' : 'gaze';
     boss.phase = nextPhase; boss.eyeOpen = nextPhase === 'gaze'; boss.vulnerable = nextPhase === 'blind';
     boss.phaseTimer = nextPhase === 'gaze' ? (c.gazeDuration || 0) : (c.blindDuration || 0);
     boss.movementAccumulator = 0;
-    boss.phaseMessage = nextPhase === 'gaze' ? 'だるまさんが……\nころん……\nだッ！' : '……';
-    boss.phaseMessageTimer = 1.6;
+    boss.currentPhraseIndex = 0;
+    boss.phraseHoldTimer = 0;
+    boss.gazeLockActive = false;
+    if (boss.dialogue) {
+      boss.dialogue.fullText = '';
+      boss.dialogue.visibleText = '';
+      boss.dialogue.charIndex = 0;
+      boss.dialogue.charTimer = 0;
+      boss.dialogue.nextCharDelay = 0;
+      boss.dialogue.active = false;
+      boss.dialogue.completed = false;
+    }
     if (nextPhase === 'gaze') playRedLightGazeSound(); else playRedLightBlindSound();
   }
-  if (boss.phase === 'gaze') {
+  if (boss.phase === 'gaze' && boss.gazeLockActive) {
     const hidden = isObstacleBlockingLine(boss.x, boss.y, p.x, p.y);
     if (!hidden) {
       const delta = getPlayerMovementDelta(boss.lastPlayerX, boss.lastPlayerY, p.x, p.y);
@@ -2853,12 +2976,38 @@ function renderRedLightBossBattle() {
   vg.addColorStop(0, 'rgba(0,0,0,0)');
   vg.addColorStop(1, 'rgba(30,0,0,0.26)');
   ctx.fillStyle = vg; ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
-  if ((boss.phaseMessageTimer || 0) > 0 && boss.phaseMessage) {
-    ctx.fillStyle = '#ffd0d0'; ctx.font = 'bold 24px sans-serif'; ctx.textAlign = 'center';
-    const lines = String(boss.phaseMessage).split('\n');
-    lines.forEach((line, i) => ctx.fillText(line, CONFIG.canvas.width * 0.5, 52 + i * 28));
+  if ((gameState?.player?.redLightPunishFlashTimer || 0) > 0) {
+    const flashPct = clamp((gameState.player.redLightPunishFlashTimer || 0) / (c.punishmentFlashDuration || 0.45), 0, 1);
+    ctx.fillStyle = `rgba(255,50,50,${0.24 * flashPct})`;
+    ctx.fillRect(0, 0, CONFIG.canvas.width, CONFIG.canvas.height);
   }
   ctx.restore();
+  renderRedLightDialogue(ctx);
+}
+
+function renderRedLightDialogue(drawCtx) {
+  const boss = gameState?.duel?.boss;
+  const dialogue = boss?.dialogue;
+  if (!drawCtx || !dialogue) return;
+  const text = dialogue.visibleText || '';
+  if (!text && !dialogue.active && !dialogue.completed) return;
+  const c = CONFIG.redLight || {};
+  const panelW = CONFIG.canvas.width - 120;
+  const panelH = Number(c.dialogueBoxHeight) || 52;
+  const x = (CONFIG.canvas.width - panelW) * 0.5;
+  const y = CONFIG.canvas.height - panelH - (Number(c.dialogueBottomMargin) || 18);
+  drawCtx.save();
+  drawCtx.fillStyle = 'rgba(8,10,16,0.62)';
+  drawCtx.fillRect(x, y, panelW, panelH);
+  drawCtx.strokeStyle = 'rgba(255,170,170,0.26)';
+  drawCtx.strokeRect(x, y, panelW, panelH);
+  drawCtx.fillStyle = '#ffd8d8';
+  drawCtx.font = 'bold 24px sans-serif';
+  drawCtx.textAlign = 'left';
+  drawCtx.fillText(text, x + 20, y + 34);
+  const pulseOn = Math.sin((gameState.time || 0) * 5.6) > -0.2;
+  if (pulseOn) drawCtx.fillText('▌', x + panelW - 28, y + 34);
+  drawCtx.restore();
 }
 function renderRedLightBoss(drawCtx) {
   const duel = gameState?.duel; const boss = duel?.boss; const c = CONFIG.redLight || {};
@@ -3569,7 +3718,14 @@ debugBackBtn?.addEventListener('click', () => {
 
 startDebugBtn?.addEventListener('click', () => {
   if (gameState.phase !== 'start') return;
-  applyDebugPreset(gameState?.debug?.selectedPresetId || 'normal');
+  const preset = getDebugPresetById(gameState?.debug?.selectedPresetId || 'normal');
+  applyDebugPreset(preset?.id || 'normal');
+  if (preset?.startMode && startDebugBossBattle(preset.startMode)) {
+    startModal?.classList.add('hidden');
+    gameOverModal.classList.add('hidden');
+    clearModal?.classList.add('hidden');
+    return;
+  }
   startRun();
   startModal?.classList.add('hidden');
   gameOverModal.classList.add('hidden');
