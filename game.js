@@ -131,17 +131,24 @@ const CONFIG = {
     exitIndicatorWidth: 36,
     exitIndicatorPulseSpeed: 3.2,
   },
+  environment: {
+    obstaclePushStrength: 14,
+    obstacleSoftCollisionIterations: 1,
+    obstaclePlayerSlideFactor: 0.82,
+    obstacleEnemySlideFactor: 0.68,
+    obstacleDebugRender: false,
+  },
   zones: {
-    shallows: { id: 'shallows', name: '浅瀬', biome: 'shallows', exits: { east: 'kelp' }, enemyTypes: ['crayfish', 'botancho'], maxEnemies: 14, spawnInterval: 1.4, pressureLevel: 0.45, backgroundColor: '#173457', overlayColor: 'rgba(208,236,255,0.08)', transitionMessage: '海流がかわりはじめた……', durationBeforePressure: 20, durationBeforeExit: 35 },
-    kelp: { id: 'kelp', name: '海藻地帯', biome: 'kelp', exits: { east: 'carcass', west: 'shallows' }, enemyTypes: ['botancho', 'shinju'], maxEnemies: 18, spawnInterval: 1.18, pressureLevel: 0.54, backgroundColor: '#163b3f', overlayColor: 'rgba(122,188,164,0.08)', transitionMessage: '生きものたちが奥へ逃げていく……', durationBeforePressure: 18, durationBeforeExit: 34 },
-    carcass: { id: 'carcass', name: '死骸地帯', biome: 'carcass', exits: { east: 'branch_point', west: 'kelp' }, enemyTypes: ['crayfish', 'inoshishi', 'golem'], maxEnemies: 21, spawnInterval: 1.0, pressureLevel: 0.72, backgroundColor: '#392d37', overlayColor: 'rgba(210,122,112,0.10)', transitionMessage: '腐肉のにおいが濃くなる……', durationBeforePressure: 17, durationBeforeExit: 32 },
-    branch_point: { id: 'branch_point', name: '分岐海流', biome: 'branch', exits: { east: 'todo_domain', south: 'drowned_shrine', west: 'carcass' }, forwardExits: ['east', 'south'], enemyTypes: ['inoshishi', 'botancho'], maxEnemies: 15, spawnInterval: 1.15, pressureLevel: 0.8, backgroundColor: '#1f2b3d', overlayColor: 'rgba(180,210,240,0.10)', transitionMessage: '流れが二手に裂ける……', durationBeforePressure: 14, durationBeforeExit: 22 },
-    todo_domain: { id: 'todo_domain', name: 'トド領域', biome: 'tododon', exits: { west: 'branch_point', east: 'tododon_approach' }, forwardExits: ['east'], enemyTypes: ['golem', 'inoshishi'], maxEnemies: 9, spawnInterval: 1.28, pressureLevel: 0.94, backgroundColor: '#20263a', overlayColor: 'rgba(255,255,255,0.14)', transitionMessage: 'トド王のなわばりが近い……', durationBeforePressure: 12, durationBeforeExit: 24 },
-    tododon_approach: { id: 'tododon_approach', name: 'トドドン接近海路', biome: 'tododon', exits: { west: 'todo_domain', east: 'tododon_gate' }, forwardExits: ['east'], enemyTypes: ['golem', 'frostfang'], maxEnemies: 8, spawnInterval: 1.2, pressureLevel: 1, backgroundColor: '#1d2434', overlayColor: 'rgba(230,244,255,0.12)', transitionMessage: '巨大な影が海を覆う……', durationBeforePressure: 10, durationBeforeExit: 20 },
+    shallows: { id: 'shallows', name: '浅瀬', biome: 'shallows', exits: { east: 'kelp' }, enemyTypes: ['crayfish', 'botancho'], maxEnemies: 14, spawnInterval: 1.4, pressureLevel: 0.45, backgroundColor: '#173457', overlayColor: 'rgba(208,236,255,0.08)', transitionMessage: '海流がかわりはじめた……', durationBeforePressure: 20, durationBeforeExit: 35, obstacles: [{ id: 'shallow_rock_01', type: 'circle', x: 286, y: 168, radius: 40, visual: 'rock' }, { id: 'shallow_rock_02', type: 'circle', x: 512, y: 354, radius: 34, visual: 'rock' }, { id: 'shallow_kelp_01', type: 'rect', x: 690, y: 190, width: 34, height: 130, visual: 'kelp' }] },
+    kelp: { id: 'kelp', name: '海藻地帯', biome: 'kelp', exits: { east: 'carcass', west: 'shallows' }, enemyTypes: ['botancho', 'shinju'], maxEnemies: 18, spawnInterval: 1.18, pressureLevel: 0.54, backgroundColor: '#163b3f', overlayColor: 'rgba(122,188,164,0.08)', transitionMessage: '生きものたちが奥へ逃げていく……', durationBeforePressure: 18, durationBeforeExit: 34, obstacles: [{ id: 'kelp_wall_01', type: 'rect', x: 280, y: 70, width: 40, height: 160, visual: 'kelp' }, { id: 'kelp_wall_02', type: 'rect', x: 470, y: 250, width: 46, height: 220, visual: 'kelp' }, { id: 'kelp_wall_03', type: 'rect', x: 660, y: 110, width: 42, height: 200, visual: 'kelp' }] },
+    carcass: { id: 'carcass', name: '死骸地帯', biome: 'carcass', exits: { east: 'branch_point', west: 'kelp' }, enemyTypes: ['crayfish', 'inoshishi', 'golem'], maxEnemies: 21, spawnInterval: 1.0, pressureLevel: 0.72, backgroundColor: '#392d37', overlayColor: 'rgba(210,122,112,0.10)', transitionMessage: '腐肉のにおいが濃くなる……', durationBeforePressure: 17, durationBeforeExit: 32, obstacles: [{ id: 'carcass_mass_01', type: 'circle', x: 470, y: 270, radius: 120, visual: 'carcass' }, { id: 'carcass_debris_01', type: 'rect', x: 320, y: 90, width: 48, height: 120, visual: 'carcass' }, { id: 'carcass_debris_02', type: 'rect', x: 600, y: 338, width: 54, height: 118, visual: 'carcass' }] },
+    branch_point: { id: 'branch_point', name: '分岐海流', biome: 'branch', exits: { east: 'todo_domain', south: 'drowned_shrine', west: 'carcass' }, forwardExits: ['east', 'south'], enemyTypes: ['inoshishi', 'botancho'], maxEnemies: 15, spawnInterval: 1.15, pressureLevel: 0.8, backgroundColor: '#1f2b3d', overlayColor: 'rgba(180,210,240,0.10)', transitionMessage: '流れが二手に裂ける……', durationBeforePressure: 14, durationBeforeExit: 22, obstacles: [{ id: 'branch_rock_01', type: 'circle', x: 386, y: 224, radius: 56, visual: 'rock' }, { id: 'branch_kelp_01', type: 'rect', x: 610, y: 72, width: 40, height: 170, visual: 'kelp' }, { id: 'branch_hole_01', type: 'circle', x: 702, y: 382, radius: 52, visual: 'hole' }] },
+    todo_domain: { id: 'todo_domain', name: 'トド領域', biome: 'tododon', exits: { west: 'branch_point', east: 'tododon_approach' }, forwardExits: ['east'], enemyTypes: ['golem', 'inoshishi'], maxEnemies: 9, spawnInterval: 1.28, pressureLevel: 0.94, backgroundColor: '#20263a', overlayColor: 'rgba(255,255,255,0.14)', transitionMessage: 'トド王のなわばりが近い……', durationBeforePressure: 12, durationBeforeExit: 24, obstacles: [{ id: 'todo_edge_01', type: 'rect', x: 210, y: 64, width: 58, height: 140, visual: 'pillar' }, { id: 'todo_edge_02', type: 'rect', x: 210, y: 336, width: 58, height: 140, visual: 'pillar' }, { id: 'todo_edge_03', type: 'rect', x: 742, y: 64, width: 58, height: 140, visual: 'pillar' }, { id: 'todo_edge_04', type: 'rect', x: 742, y: 336, width: 58, height: 140, visual: 'pillar' }] },
+    tododon_approach: { id: 'tododon_approach', name: 'トドドン接近海路', biome: 'tododon', exits: { west: 'todo_domain', east: 'tododon_gate' }, forwardExits: ['east'], enemyTypes: ['golem', 'frostfang'], maxEnemies: 8, spawnInterval: 1.2, pressureLevel: 1, backgroundColor: '#1d2434', overlayColor: 'rgba(230,244,255,0.12)', transitionMessage: '巨大な影が海を覆う……', durationBeforePressure: 10, durationBeforeExit: 20, obstacles: [{ id: 'approach_wall_north', type: 'rect', x: 366, y: 70, width: 52, height: 164, visual: 'rock' }, { id: 'approach_wall_south', type: 'rect', x: 366, y: 304, width: 52, height: 164, visual: 'rock' }, { id: 'approach_wall_north_2', type: 'rect', x: 588, y: 96, width: 54, height: 146, visual: 'rock' }, { id: 'approach_wall_south_2', type: 'rect', x: 588, y: 298, width: 54, height: 146, visual: 'rock' }] },
     tododon_gate: { id: 'tododon_gate', name: 'Tododon出現部屋', biome: 'tododon', exits: { west: 'tododon_approach' }, enemyTypes: ['golem'], maxEnemies: 0, spawnInterval: 2.4, pressureLevel: 1, backgroundColor: '#181f30', overlayColor: 'rgba(220,245,255,0.14)', transitionMessage: '王の咆哮が水を震わせる……', durationBeforePressure: 8, durationBeforeExit: 16, boss: 'tododon' },
-    drowned_shrine: { id: 'drowned_shrine', name: '水没神殿', biome: 'shrine', exits: { north: 'branch_point', south: 'gaze_lair' }, forwardExits: ['south'], enemyTypes: ['shinju', 'botancho'], maxEnemies: 10, spawnInterval: 1.35, pressureLevel: 0.95, backgroundColor: '#1a2131', overlayColor: 'rgba(186,154,224,0.10)', transitionMessage: '視線の気配が水底からのぼる……', durationBeforePressure: 12, durationBeforeExit: 22 },
-    gaze_lair: { id: 'gaze_lair', name: '凝視の巣', biome: 'gaze', exits: { north: 'drowned_shrine', south: 'red_light_approach' }, forwardExits: ['south'], enemyTypes: ['shinju'], maxEnemies: 4, spawnInterval: 1.6, pressureLevel: 0.98, backgroundColor: '#141a28', overlayColor: 'rgba(255,120,120,0.10)', transitionMessage: '赤い視線が満ちていく……', durationBeforePressure: 10, durationBeforeExit: 18 },
-    red_light_approach: { id: 'red_light_approach', name: '赤光接近回廊', biome: 'gaze', exits: { north: 'gaze_lair', south: 'red_light_gate' }, forwardExits: ['south'], enemyTypes: ['shinju', 'frostfang'], maxEnemies: 8, spawnInterval: 1.28, pressureLevel: 1, backgroundColor: '#171826', overlayColor: 'rgba(255,100,120,0.12)', transitionMessage: '脈動する赤光が迫る……', durationBeforePressure: 9, durationBeforeExit: 18 },
+    drowned_shrine: { id: 'drowned_shrine', name: '水没神殿', biome: 'shrine', exits: { north: 'branch_point', south: 'gaze_lair' }, forwardExits: ['south'], enemyTypes: ['shinju', 'botancho'], maxEnemies: 10, spawnInterval: 1.35, pressureLevel: 0.95, backgroundColor: '#1a2131', overlayColor: 'rgba(186,154,224,0.10)', transitionMessage: '視線の気配が水底からのぼる……', durationBeforePressure: 12, durationBeforeExit: 22, obstacles: [{ id: 'shrine_pillar_01', type: 'circle', x: 318, y: 172, radius: 34, visual: 'pillar' }, { id: 'shrine_pillar_02', type: 'circle', x: 492, y: 276, radius: 40, visual: 'pillar' }, { id: 'shrine_pillar_03', type: 'circle', x: 654, y: 170, radius: 34, visual: 'pillar' }, { id: 'shrine_pillar_04', type: 'rect', x: 442, y: 384, width: 58, height: 98, visual: 'pillar' }] },
+    gaze_lair: { id: 'gaze_lair', name: '凝視の巣', biome: 'gaze', exits: { north: 'drowned_shrine', south: 'red_light_approach' }, forwardExits: ['south'], enemyTypes: ['shinju'], maxEnemies: 4, spawnInterval: 1.6, pressureLevel: 0.98, backgroundColor: '#141a28', overlayColor: 'rgba(255,120,120,0.10)', transitionMessage: '赤い視線が満ちていく……', durationBeforePressure: 10, durationBeforeExit: 18, obstacles: [{ id: 'gaze_hole_01', type: 'circle', x: 362, y: 224, radius: 44, visual: 'hole' }, { id: 'gaze_hole_02', type: 'circle', x: 594, y: 308, radius: 40, visual: 'hole' }, { id: 'gaze_rock_01', type: 'rect', x: 728, y: 200, width: 46, height: 116, visual: 'rock' }] },
+    red_light_approach: { id: 'red_light_approach', name: '赤光接近回廊', biome: 'gaze', exits: { north: 'gaze_lair', south: 'red_light_gate' }, forwardExits: ['south'], enemyTypes: ['shinju', 'frostfang'], maxEnemies: 8, spawnInterval: 1.28, pressureLevel: 1, backgroundColor: '#171826', overlayColor: 'rgba(255,100,120,0.12)', transitionMessage: '脈動する赤光が迫る……', durationBeforePressure: 9, durationBeforeExit: 18, obstacles: [{ id: 'red_pillar_01', type: 'rect', x: 316, y: 116, width: 54, height: 104, visual: 'pillar' }, { id: 'red_pillar_02', type: 'rect', x: 590, y: 116, width: 54, height: 104, visual: 'pillar' }, { id: 'red_pillar_03', type: 'rect', x: 316, y: 320, width: 54, height: 104, visual: 'pillar' }, { id: 'red_pillar_04', type: 'rect', x: 590, y: 320, width: 54, height: 104, visual: 'pillar' }] },
     red_light_gate: { id: 'red_light_gate', name: 'Red Light出現部屋', biome: 'gaze', exits: { north: 'red_light_approach' }, enemyTypes: ['shinju'], maxEnemies: 0, spawnInterval: 2.4, pressureLevel: 1, backgroundColor: '#111522', overlayColor: 'rgba(255,120,120,0.14)', transitionMessage: '赤い瞳が闇を切り裂く……', durationBeforePressure: 8, durationBeforeExit: 15, boss: 'red_light' },
   },
   special: {
@@ -1022,6 +1029,116 @@ function getCurrentZone() {
   return zones[zoneId] || zones.shallows || null;
 }
 
+function getCurrentZoneObstacles() {
+  const zone = getCurrentZone();
+  return Array.isArray(zone?.obstacles) ? zone.obstacles : [];
+}
+
+function isObstacleBlockingLine(x1, y1, x2, y2) {
+  const ox1 = Number(x1) || 0;
+  const oy1 = Number(y1) || 0;
+  const ox2 = Number(x2) || 0;
+  const oy2 = Number(y2) || 0;
+  const dx = ox2 - ox1;
+  const dy = oy2 - oy1;
+  const lenSq = dx * dx + dy * dy;
+  return getCurrentZoneObstacles().some(obstacle => {
+    if (!obstacle || !obstacle.type) return false;
+    if (obstacle.type === 'circle') {
+      const cx = Number(obstacle.x) || 0;
+      const cy = Number(obstacle.y) || 0;
+      const r = Math.max(0, Number(obstacle.radius) || 0);
+      const t = lenSq <= 0 ? 0 : clamp((((cx - ox1) * dx) + ((cy - oy1) * dy)) / lenSq, 0, 1);
+      const px = ox1 + dx * t;
+      const py = oy1 + dy * t;
+      return Math.hypot(cx - px, cy - py) <= r;
+    }
+    if (obstacle.type === 'rect') {
+      const rx = Number(obstacle.x) || 0;
+      const ry = Number(obstacle.y) || 0;
+      const rw = Math.max(0, Number(obstacle.width) || 0);
+      const rh = Math.max(0, Number(obstacle.height) || 0);
+      for (let i = 0; i <= 10; i += 1) {
+        const t = i / 10;
+        const sx = ox1 + dx * t;
+        const sy = oy1 + dy * t;
+        if (sx >= rx && sx <= rx + rw && sy >= ry && sy <= ry + rh) return true;
+      }
+    }
+    return false;
+  });
+}
+
+function resolveEntityObstacleCollisions(entity, slideFactor = 1) {
+  if (!entity || !Number.isFinite(entity.x) || !Number.isFinite(entity.y)) return;
+  const radius = Math.max(1, Number(entity.radius) || 1);
+  const pushStrength = Math.max(1, Number(CONFIG.environment?.obstaclePushStrength) || 14);
+  const softIterations = Math.max(1, Number(CONFIG.environment?.obstacleSoftCollisionIterations) || 1);
+  const safeSlide = clamp(Number(slideFactor) || 1, 0, 1);
+  const obstacles = getCurrentZoneObstacles();
+  if (!obstacles.length) return;
+
+  for (let iter = 0; iter < softIterations; iter += 1) {
+    obstacles.forEach(obstacle => {
+      if (!obstacle || !obstacle.type) return;
+      if (obstacle.type === 'circle') {
+        const ox = Number(obstacle.x) || 0;
+        const oy = Number(obstacle.y) || 0;
+        const or = Math.max(0, Number(obstacle.radius) || 0);
+        let dx = (entity.x ?? 0) - ox;
+        let dy = (entity.y ?? 0) - oy;
+        let dist = Math.hypot(dx, dy);
+        if (dist === 0) {
+          dx = 1;
+          dy = 0;
+          dist = 1;
+        }
+        const minDist = radius + or;
+        const overlap = minDist - dist;
+        if (overlap > 0) {
+          const push = Math.min(overlap, pushStrength);
+          const nx = dx / dist;
+          const ny = dy / dist;
+          entity.x += nx * push;
+          entity.y += ny * push * safeSlide;
+        }
+      } else if (obstacle.type === 'rect') {
+        const rx = Number(obstacle.x) || 0;
+        const ry = Number(obstacle.y) || 0;
+        const rw = Math.max(0, Number(obstacle.width) || 0);
+        const rh = Math.max(0, Number(obstacle.height) || 0);
+        const nearestX = clamp(entity.x, rx, rx + rw);
+        const nearestY = clamp(entity.y, ry, ry + rh);
+        let dx = entity.x - nearestX;
+        let dy = entity.y - nearestY;
+        let dist = Math.hypot(dx, dy);
+        if (dist < radius) {
+          if (dist < 0.0001) {
+            const left = Math.abs(entity.x - rx);
+            const right = Math.abs((rx + rw) - entity.x);
+            const top = Math.abs(entity.y - ry);
+            const bottom = Math.abs((ry + rh) - entity.y);
+            const minEdge = Math.min(left, right, top, bottom);
+            if (minEdge === left) { dx = -1; dy = 0; }
+            else if (minEdge === right) { dx = 1; dy = 0; }
+            else if (minEdge === top) { dx = 0; dy = -1; }
+            else { dx = 0; dy = 1; }
+            dist = 1;
+          }
+          const overlap = radius - dist;
+          const push = Math.min(overlap, pushStrength);
+          const nx = dx / dist;
+          const ny = dy / dist;
+          entity.x += nx * push;
+          entity.y += ny * push * safeSlide;
+        }
+      }
+    });
+  }
+  entity.x = clamp(entity.x, radius, CONFIG.canvas.width - radius);
+  entity.y = clamp(entity.y, radius, CONFIG.canvas.height - radius);
+}
+
 function getExitDirectionVector(direction) {
   const map = { east: { x: 1, y: 0 }, west: { x: -1, y: 0 }, north: { x: 0, y: -1 }, south: { x: 0, y: 1 } };
   return map[direction] || null;
@@ -1664,6 +1781,10 @@ function updatePlayerMovement(dt) {
   p.y += (yMove / mag) * effectiveSpeed * dt;
   p.x = clamp(p.x, p.radius, CONFIG.canvas.width - p.radius);
   p.y = clamp(p.y, p.radius, CONFIG.canvas.height - p.radius);
+  resolveEntityObstacleCollisions(
+    gameState.player,
+    CONFIG.environment?.obstaclePlayerSlideFactor
+  );
   const world = gameState.world;
   if (world && gameState?.phase === 'duel' && world.boundaryMessageCooldown <= 0) {
     const isTododonDuel = gameState?.duel?.bossType === 'tododon';
@@ -2079,6 +2200,10 @@ function updateEnemies(dt) {
       enemy.knockbackX = 0;
       enemy.knockbackY = 0;
     }
+    resolveEntityObstacleCollisions(
+      enemy,
+      CONFIG.environment?.obstacleEnemySlideFactor
+    );
   });
 
   if (!isEnding) applyEnemySeparation(dt);
@@ -3062,10 +3187,66 @@ function drawEventUi() {
   ctx.restore();
 }
 
+function renderZoneObstacles(context) {
+  const obstacles = getCurrentZoneObstacles();
+  if (!context || !obstacles.length) return;
+  obstacles.forEach(obstacle => {
+    if (!obstacle || !obstacle.type) return;
+    const visual = String(obstacle.visual || '');
+    if (obstacle.type === 'circle') {
+      const x = Number(obstacle.x) || 0;
+      const y = Number(obstacle.y) || 0;
+      const radius = Math.max(0, Number(obstacle.radius) || 0);
+      if (visual === 'hole') {
+        const grad = context.createRadialGradient(x, y, radius * 0.2, x, y, radius);
+        grad.addColorStop(0, 'rgba(8, 15, 26, 0.75)');
+        grad.addColorStop(1, 'rgba(8, 15, 26, 0.25)');
+        context.fillStyle = grad;
+      } else if (visual === 'carcass') {
+        context.fillStyle = 'rgba(142, 70, 76, 0.52)';
+      } else if (visual === 'pillar') {
+        context.fillStyle = 'rgba(104, 116, 138, 0.5)';
+      } else {
+        context.fillStyle = 'rgba(49, 62, 78, 0.56)';
+      }
+      context.beginPath();
+      context.arc(x, y, radius, 0, Math.PI * 2);
+      context.fill();
+    } else if (obstacle.type === 'rect') {
+      const x = Number(obstacle.x) || 0;
+      const y = Number(obstacle.y) || 0;
+      const width = Math.max(0, Number(obstacle.width) || 0);
+      const height = Math.max(0, Number(obstacle.height) || 0);
+      if (visual === 'kelp') context.fillStyle = 'rgba(88, 156, 124, 0.42)';
+      else if (visual === 'carcass') context.fillStyle = 'rgba(138, 78, 68, 0.46)';
+      else if (visual === 'pillar') context.fillStyle = 'rgba(106, 112, 128, 0.55)';
+      else context.fillStyle = 'rgba(63, 70, 82, 0.48)';
+      context.fillRect(x, y, width, height);
+    }
+    if (CONFIG.environment?.obstacleDebugRender === true) {
+      context.save();
+      context.strokeStyle = 'rgba(255, 244, 120, 0.9)';
+      context.lineWidth = 1.5;
+      if (obstacle.type === 'circle') {
+        context.beginPath();
+        context.arc(Number(obstacle.x) || 0, Number(obstacle.y) || 0, Math.max(0, Number(obstacle.radius) || 0), 0, Math.PI * 2);
+        context.stroke();
+      } else if (obstacle.type === 'rect') {
+        context.strokeRect(Number(obstacle.x) || 0, Number(obstacle.y) || 0, Math.max(0, Number(obstacle.width) || 0), Math.max(0, Number(obstacle.height) || 0));
+      }
+      context.fillStyle = '#fff2a8';
+      context.font = '12px sans-serif';
+      context.fillText(String(obstacle.id || 'obstacle'), (Number(obstacle.x) || 0) + 4, (Number(obstacle.y) || 0) - 4);
+      context.restore();
+    }
+  });
+}
+
 function render() {
   drawBackground();
   drawDuelArena();
   if (!gameState.player) return;
+  renderZoneObstacles(ctx);
   drawRanges();
   drawXpGems();
   drawParticles();
