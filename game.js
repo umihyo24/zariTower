@@ -274,6 +274,8 @@ const CONFIG = {
     bodyRadius: 130,
     weakPointRadius: 58,
     vulnerabilityMultiplier: 1.8,
+    gazeDamageMultiplier: 0,
+    vulnerableDamageMultiplier: 1.8,
     lineOfSightGrace: 0.08,
   },
 
@@ -2020,8 +2022,9 @@ function updatePlayerAttack(dt) {
   if (p.attackTimer <= 0) {
     const priority = CONFIG.special?.wideTargetingPriority;
     const duelTargets = [];
+    const activeBoss = getActiveBossTarget();
     if (gameState?.phase === 'duel') {
-      if (gameState?.duel?.tododon) duelTargets.push(gameState.duel.tododon);
+      if (activeBoss) duelTargets.push(activeBoss);
       duelTargets.push(...(gameState?.duel?.waveProjectiles || []));
     }
     const attackTargets = [...(gameState.enemies || []), ...duelTargets];
@@ -2120,11 +2123,14 @@ function updateProjectiles(dt) {
       return distance(proj, enemy) <= proj.radius + enemy.radius;
     });
     const duel = gameState?.phase === 'duel' ? gameState?.duel : null;
+    const bossTarget = getActiveBossTarget();
+    const bossHit = bossTarget && !projectileHitIds.has('active_boss')
+      && distance(proj, bossTarget) <= (Number(proj.radius) || 0) + (Number(bossTarget.radius) || 0);
     const waveHit = duel?.waveProjectiles?.find((b, i) => b?.alive !== false && !projectileHitIds.has(`wave_${i}`) && distance(proj, b) <= proj.radius + b.radius);
-    const hitEnemyOrBullet = hitEnemy || waveHit;
+    const hitEnemyOrBullet = hitEnemy || bossHit || waveHit;
     if (hitEnemyOrBullet) {
       const hitEnemy = hitEnemyOrBullet;
-      if (!(duel && hitEnemy.id === 'duel_tododon')) hitEnemy.hp -= proj.damage;
+      if (hitEnemy !== bossTarget && !(duel && hitEnemy.id === 'duel_tododon')) hitEnemy.hp -= proj.damage;
 
       const dirFromProjectileX = (hitEnemy.x ?? 0) - (proj.x ?? 0);
       const dirFromProjectileY = (hitEnemy.y ?? 0) - (proj.y ?? 0);
@@ -2157,15 +2163,15 @@ function updateProjectiles(dt) {
       }
 
       spawnHitParticles(proj.x, proj.y);
-      if (duel && hitEnemy.id === 'duel_tododon') {
-        const mult = (duel?.tododon?.state === 'vulnerable') ? (CONFIG.duel?.tododonVulnerableDamageMultiplier || 1) : (CONFIG.duel?.tododonArmorDamageMultiplier || 0.15);
-        duel.tododon.hp -= proj.damage * mult;
-      }
-      if (duel?.bossType === 'red_light') {
+      if (hitEnemy === bossTarget) {
+        damageActiveBoss(proj.damage, 'projectile');
+        projectileHitIds.add('active_boss');
+      } else if (duel && hitEnemy.id === 'duel_tododon') {
+        damageActiveBoss(proj.damage, 'projectile');
+      } else if (duel?.bossType === 'red_light') {
         const boss = duel?.boss;
         if (boss && distance(proj, boss) <= proj.radius + (CONFIG.redLight?.weakPointRadius || 58)) {
-          const mult = boss.vulnerable ? (CONFIG.redLight?.vulnerabilityMultiplier || 1) : 0.08;
-          boss.hp -= proj.damage * mult;
+          damageActiveBoss(proj.damage, 'projectile');
           boss.weakPointFlashTimer = 0.18;
         }
       }
@@ -2626,7 +2632,19 @@ function updateDuel(dt) {
   else if (t.action === 'cannon' && t.actionTimer <= 0) { t.cannon.active = false; t.action = 'advance'; t.actionTimer = c.advanceDuration || 1; t.advanceLevel = clamp((t.advanceLevel || 0) + (c.advanceAmount || 0.14), 0, c.maxAdvance || 1); setBossActionText('トドドンがにじりよってくる……', t.actionTimer); t.loopStep += 1; }
   else if (t.action === 'advance' && t.actionTimer <= 0) { t.action = 'idle'; t.actionTimer = c.bossIdleDuration || 1.1; }
   duel.waveProjectiles.forEach(b => { b.x += b.vx * dt; b.life -= dt; if (b.hp <= 0 || b.life <= 0) b.alive = false; if (b.alive && distance(b,p) <= b.radius + p.radius && gameState.damageTimer <= 0) { p.hp -= (b.damage || 0); gameState.damageTimer = CONFIG.enemy.damageCooldown; } });
-  gameState.manualShots.forEach(s => { s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt; duel.waveProjectiles.forEach(w => { if (w.alive && s.life > 0 && distance(s, w) <= s.radius + w.radius) { w.hp -= (s.damage || 0); s.life = 0; if (w.hp <= 0) w.alive = false; } }); });
+  gameState.manualShots.forEach(s => {
+    s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
+    duel.waveProjectiles.forEach(w => {
+      if (w.alive && s.life > 0 && distance(s, w) <= s.radius + w.radius) {
+        w.hp -= (s.damage || 0); s.life = 0; if (w.hp <= 0) w.alive = false;
+      }
+    });
+    const boss = getActiveBossTarget();
+    if (boss && s.life > 0 && distance(s, boss) <= (Number(s.radius) || 0) + (Number(boss.radius) || 0)) {
+      damageActiveBoss(s.damage || 0, 'manual');
+      s.life = 0;
+    }
+  });
   gameState.damageTimer -= dt;
   duel.waveProjectiles = (duel.waveProjectiles || []).filter(b => b?.alive && Number.isFinite(b.x) && Number.isFinite(b.y) && b.x > -120 && b.x < (c.arenaWidth || CONFIG.canvas.width) + 120);
   gameState.manualShots = (gameState.manualShots || []).filter(s => Number.isFinite(s?.x) && Number.isFinite(s?.y) && s.life > 0);
@@ -2635,7 +2653,79 @@ function updateDuel(dt) {
   if (distance(t,p) <= contactR && t.contactDamageTimer <= 0) { p.hp -= (c.contactDamage || 14); t.contactDamageTimer = c.contactInterval || 0.33; }
   if (t.cannon?.active) { const half = (c.cannonWidth || 86) * 0.5; if (Math.abs((p.y || 0) - (t.cannon.y || 0)) <= half && gameState.damageTimer <= 0) { p.hp -= (c.cannonDamage || 38); gameState.damageTimer = CONFIG.enemy.damageCooldown; } }
   if ((p.hp || 0) <= 0) { showGameOver(); return; }
-  if ((t.hp || 0) <= 0) { duel.isComplete = true; unlockTododonShop(); showClear(); }
+  if ((t.hp || 0) <= 0) completeBossEncounter('tododon');
+}
+
+function normalizeBossRadius(boss) {
+  const fallback = Number(CONFIG.redLight?.bodyRadius) || Number(CONFIG.duel?.tododonRadius) || 60;
+  const radius = Number.isFinite(boss?.radius) && boss.radius > 0 ? boss.radius : fallback;
+  return Math.max(1, radius);
+}
+
+function getActiveBossTarget() {
+  const duel = gameState.duel;
+  if (!duel || (duel.active !== true && !duel.bossType)) return null;
+  let boss = null;
+  if (duel.bossType === 'tododon') boss = duel.tododon || duel.boss || null;
+  else if (duel.bossType === 'red_light') boss = duel.boss || null;
+  if (!boss) return null;
+  const hp = Number.isFinite(boss.hp) ? boss.hp : 0;
+  const maxHp = Number.isFinite(boss.maxHp) ? boss.maxHp : Math.max(1, hp);
+  return {
+    ...boss,
+    radius: normalizeBossRadius(boss),
+    hp,
+    maxHp,
+    bossType: duel.bossType,
+    _ref: boss,
+  };
+}
+
+function damageActiveBoss(amount, source = 'projectile') {
+  const target = getActiveBossTarget();
+  if (!target || !target._ref) return false;
+  const duel = gameState.duel;
+  const boss = target._ref;
+  if (!Number.isFinite(amount) || amount <= 0) return false;
+  if (duel?.isComplete) return false;
+  let mult = 1;
+  let damageable = true;
+  if (target.bossType === 'red_light') {
+    const gazeMult = Number.isFinite(CONFIG.redLight?.gazeDamageMultiplier) ? CONFIG.redLight.gazeDamageMultiplier : 0;
+    const vulnerableMult = Number.isFinite(CONFIG.redLight?.vulnerableDamageMultiplier) ? CONFIG.redLight.vulnerableDamageMultiplier : (Number(CONFIG.redLight?.vulnerabilityMultiplier) || 1.8);
+    const vulnerable = boss.vulnerable === true || boss.phase === 'blind';
+    mult = vulnerable ? vulnerableMult : gazeMult;
+    damageable = mult > 0;
+    if (vulnerable) boss.weakPointFlashTimer = 0.18;
+  }
+  if (target.bossType === 'tododon' && boss.state === 'dead') return false;
+  const dmg = Math.max(0, amount * Math.max(0, mult));
+  if (!Number.isFinite(dmg)) return false;
+  boss.hp = clamp((Number(boss.hp) || 0) - dmg, 0, Number.isFinite(boss.maxHp) ? boss.maxHp : Math.max(1, Number(boss.hp) || 1));
+  spawnHitParticles(Number(boss.x) || 0, Number(boss.y) || 0);
+  if (boss.hp <= 0) completeBossEncounter(target.bossType);
+  return damageable;
+}
+
+function isActiveBossDamageable() {
+  const target = getActiveBossTarget();
+  if (!target || !target._ref) return false;
+  if (target.bossType === 'red_light') return target._ref.vulnerable === true || target._ref.phase === 'blind';
+  if (target.bossType === 'tododon') return target._ref.state !== 'dead';
+  return true;
+}
+
+function completeBossEncounter(bossType) {
+  const duel = gameState?.duel;
+  if (!duel || duel.isComplete) return;
+  duel.isComplete = true;
+  duel.active = false;
+  if (Array.isArray(duel.waveProjectiles)) duel.waveProjectiles = [];
+  if (Array.isArray(gameState.projectiles)) gameState.projectiles = [];
+  if (Array.isArray(gameState.manualShots)) gameState.manualShots = [];
+  if (bossType === 'tododon') unlockTododonShop();
+  if (bossType === 'red_light' && gameState.world) gameState.world.redLightBossDefeated = true;
+  showClear();
 }
 
 function getMovementDistance(entity) {
@@ -2799,7 +2889,7 @@ function updateRedLightBossBattle(dt) {
   }
   updateRedLightPunishment(dt);
   if ((p.hp || 0) <= 0) { showGameOver(); return; }
-  if ((boss.hp || 0) <= 0) { duel.isComplete = true; boss.phase = 'dead'; if (gameState.world) gameState.world.redLightBossDefeated = true; showClear(); }
+  if ((boss.hp || 0) <= 0) { boss.phase = 'dead'; completeBossEncounter('red_light'); }
 }
 
 function revealRangeVisibility() {
@@ -3217,6 +3307,16 @@ function drawHud() {
     ctx.fillText(`Hidden From Gaze: ${hidden}`, 26, 318);
     ctx.fillText(`Movement Distance: ${moveDist.toFixed(2)}`, 26, 334);
     ctx.fillText(`Current Phrase: ${boss?.currentPhrase || ''}`, 26, 350);
+  }
+  if (gameState?.duel?.active === true || gameState?.duel?.bossType) {
+    const boss = getActiveBossTarget();
+    if (boss) {
+      ctx.fillStyle = 'rgba(230,255,230,0.9)';
+      ctx.font = '12px monospace';
+      ctx.fillText(`Boss: ${boss.bossType}`, 26, 366);
+      ctx.fillText(`Boss HP: ${Math.ceil(boss.hp)} / ${Math.ceil(boss.maxHp)}`, 26, 382);
+      ctx.fillText(`Damageable: ${isActiveBossDamageable()}`, 26, 398);
+    }
   }
 }
 
