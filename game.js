@@ -249,7 +249,7 @@ const CONFIG = {
     maxHp: 120,
     gazeDuration: 3.8,
     blindDuration: 2.2,
-    movementThreshold: 14,
+    movementThreshold: 2,
     punishmentDamage: 18,
     punishmentStunDuration: 0.9,
     punishmentFlashDuration: 0.45,
@@ -1956,6 +1956,9 @@ function addXp(amount) {
 
 function updatePlayerMovement(dt) {
   const p = gameState.player;
+
+  p.prevX = p.x;
+  p.prevY = p.y;
   const xMove = (gameState.keys.ArrowRight || gameState.keys.d ? 1 : 0) - (gameState.keys.ArrowLeft || gameState.keys.a ? 1 : 0);
   const yMove = (gameState.keys.ArrowDown || gameState.keys.s ? 1 : 0) - (gameState.keys.ArrowUp || gameState.keys.w ? 1 : 0);
   if (xMove < 0) p.facingX = -1;
@@ -2758,10 +2761,20 @@ function completeBossEncounter(bossType) {
 function getMovementDistance(entity) {
   if (!entity) return 0;
 
-  const dx = (entity.x || 0) - (entity.prevX || 0);
-  const dy = (entity.y || 0) - (entity.prevY || 0);
+  const currentX = Number(entity.x) || 0;
+  const currentY = Number(entity.y) || 0;
 
-  return Math.hypot(dx, dy);
+  const prevX = Number(entity.prevX);
+  const prevY = Number(entity.prevY);
+
+  if (!Number.isFinite(prevX) || !Number.isFinite(prevY)) {
+    return 0;
+  }
+
+  return Math.hypot(
+    currentX - prevX,
+    currentY - prevY
+  );
 }
 
 function isRedLightDangerActive() {
@@ -2805,6 +2818,8 @@ function playRedLightPunishmentSound() {}
 function playRedLightBlindSound() {}
 
 function applyRedLightPunishment() {
+  console.warn('[red_light] APPLY PUNISHMENT');
+
   const player = gameState.player;
   const duel = gameState.duel;
   const boss = duel?.boss;
@@ -2812,9 +2827,17 @@ function applyRedLightPunishment() {
   if (!player || !boss) return;
 
   const damage = Number(CONFIG.redLight?.punishmentDamage) || 0;
-  const currentHp = Number.isFinite(player.hp) ? player.hp : CONFIG.player.maxHp;
+  const beforeHp = Number.isFinite(player.hp) ? player.hp : CONFIG.player.maxHp;
 
-  player.hp = Math.max(0, currentHp - damage);
+  player.hp = Math.max(
+    0,
+    beforeHp - damage
+  );
+
+  console.warn('[red_light] hp changed', {
+    beforeHp,
+    afterHp: player.hp
+  });
 
   player.redLightStunTimer =
     Number(CONFIG.redLight?.punishmentStunDuration) || 0;
@@ -2832,7 +2855,7 @@ function applyRedLightPunishment() {
 
   console.info('[red_light] punishment applied', {
     damage,
-    beforeHp: currentHp,
+    beforeHp,
     afterHp: player.hp
   });
 
@@ -2859,10 +2882,24 @@ function updateRedLightPunishment(dt) {
   if (boss.punishmentCooldownTimer > 0) return;
 
   const hidden = isPlayerHiddenFromRedLight();
-  if (hidden) return;
+
+  console.info('[red_light] hidden check', {
+    hidden
+  });
 
   const movedDistance = getMovementDistance(player);
   const threshold = Number(CONFIG.redLight?.movementThreshold) || 14;
+
+  console.info('[red_light] movement check', {
+    movedDistance,
+    threshold: CONFIG.redLight.movementThreshold,
+    danger: isRedLightDangerActive(),
+    hidden: isPlayerHiddenFromRedLight?.(),
+    phrase: boss.currentPhrase
+  });
+
+  // DEBUG: temporarily bypass hidden gate for line-of-sight verification
+  // if (hidden) return;
 
   if (movedDistance < threshold) return;
 
@@ -2884,8 +2921,6 @@ function updateRedLightBossBattle(dt) {
   if (!p || !duel || !boss) return;
   duel.timer = (duel.timer || 0) + dt;
   p.redLightPunishFlashTimer = Math.max(0, (p.redLightPunishFlashTimer || 0) - dt);
-  p.prevX = p.x;
-  p.prevY = p.y;
   if (p.redLightStunTimer > 0) {
     p.redLightStunTimer = Math.max(0, p.redLightStunTimer - dt);
   } else {
