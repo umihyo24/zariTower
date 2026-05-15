@@ -25,12 +25,18 @@ const CONFIG = {
       support: 'support',
     },
     creatureRoles: {
-      crayfish: 'basic',
+      tsurumatsu: 'basic',
+      umeguisu: 'drifter',
+      utagezakura: 'drifter',
+      hototofuji: 'support',
+      yatsutsubata: 'basic',
       botancho: 'drifter',
-      inoshishi: 'charger',
-      frostfang: 'drifter',
-      golem: 'heavy',
-      shinju: 'support',
+      hagnoshishi: 'charger',
+      gachirinbo: 'support',
+      kikusakazuki: 'support',
+      momijika: 'charger',
+      yanagaeru: 'drifter',
+      gotouou: 'heavy',
     },
     baseRadius: 14,
     baseSpeed: 70,
@@ -46,12 +52,18 @@ const CONFIG = {
       solid_damage: { blocksPlayer: true, slowsPlayer: false, slowMultiplier: 1, touchDamageScale: 1.25 },
     },
     creatureContactProfiles: {
+      tsurumatsu: 'damage_passable',
+      umeguisu: 'passable',
+      utagezakura: 'passable',
+      hototofuji: 'snare',
+      yatsutsubata: 'snare_damage',
       botancho: 'passable',
-      shinju: 'passable',
-      crayfish: 'damage_passable',
-      frostfang: 'snare_damage',
-      inoshishi: 'damage_passable',
-      golem: 'solid_damage',
+      hagnoshishi: 'damage_passable',
+      gachirinbo: 'passable',
+      kikusakazuki: 'snare',
+      momijika: 'damage_passable',
+      yanagaeru: 'passable',
+      gotouou: 'solid_damage',
     },
     spawnInterval: 0.8,
     minSpawnInterval: 0.22,
@@ -120,36 +132,44 @@ const CONFIG = {
   },
   world: {
     transitionDuration: 1.2,
-    transitionOverlayAlpha: 0.4,
+    transitionOverlayAlpha: 0.32,
     zoneTransitionCooldown: 0.18,
-    messageDuration: 3.4,
-    boundaryMessageDuration: 2.2,
-    boundaryMessageCooldown: 1.1,
+    messageDuration: 3,
+    boundaryMessageDuration: 1.8,
+    boundaryMessageCooldown: 1,
     boundaryPushback: 22,
-    pressureSpawnRateMultiplier: 0.7,
-    pressureEnemyBonus: 3,
+    pressureSpawnRateMultiplier: 0.2,
+    pressureEnemyBonus: 1,
     exitIndicatorWidth: 36,
     exitIndicatorPulseSpeed: 3.2,
+    hub: { id: 'hub', label: '中央庭園' },
+    seasons: {
+      spring: { id: 'spring', label: '春回廊', zones: ['pine', 'plum', 'cherry'] },
+      summer: { id: 'summer', label: '夏回廊', zones: ['wisteria', 'iris', 'peony'] },
+      autumn: { id: 'autumn', label: '秋回廊', zones: ['bush_clover', 'pampas', 'chrysanthemum'] },
+      winter: { id: 'winter', label: '冬回廊', zones: ['maple', 'willow', 'paulownia'] },
+    },
   },
-  environment: {
-    obstaclePushStrength: 14,
-    obstacleSoftCollisionIterations: 1,
-    obstaclePlayerSlideFactor: 0.82,
-    obstacleEnemySlideFactor: 0.68,
-    obstacleDebugRender: false,
+  hanafudaBeasts: {
+    pine_crane: { label: 'ツルマツ', month: 1, motionProfile: 'glide', territoryBehavior: 'wide_patrol', terrainAffinity: 'wind' },
+    plum_warbler: { label: 'ウメグイス', month: 2, motionProfile: 'flutter', territoryBehavior: 'evasive', terrainAffinity: 'branches' },
+    cherry_feast: { label: 'ウタゲザクラ', month: 3, motionProfile: 'drift', territoryBehavior: 'swarm', terrainAffinity: 'open_ground' },
+    wisteria_cuckoo: { label: 'ホトトフジ', month: 4, motionProfile: 'sway', territoryBehavior: 'vertical_movement', terrainAffinity: 'vines' },
+    iris_bridge: { label: 'ヤツツバタ', month: 5, motionProfile: 'slide', territoryBehavior: 'lane_control', terrainAffinity: 'bridges' },
+    peony_butterfly: { label: 'ボタンチョウ', month: 6, motionProfile: 'float', territoryBehavior: 'drifter', terrainAffinity: 'flowers' },
+    bushclover_boar: { label: 'ハギノシシ', month: 7, motionProfile: 'stomp', territoryBehavior: 'charge', terrainAffinity: 'narrow_paths' },
+    moon_pampas: { label: 'ガチリンボウ', month: 8, motionProfile: 'pulse', territoryBehavior: 'orbit', terrainAffinity: 'moonlight' },
+    chrysanthemum_sake: { label: 'キクサカズキ', month: 9, motionProfile: 'sway', territoryBehavior: 'counter', terrainAffinity: 'circles' },
+    maple_deer: { label: 'モミジカ', month: 10, motionProfile: 'dash', territoryBehavior: 'retreat_charge', terrainAffinity: 'forest' },
+    willow_frog: { label: 'ヤナガエル', month: 11, motionProfile: 'bounce', territoryBehavior: 'water_hop', terrainAffinity: 'wetlands' },
+    phoenix_paulownia: { label: 'ゴトウオウ', month: 12, motionProfile: 'rise', territoryBehavior: 'territorial_circle', terrainAffinity: 'sky' },
   },
   zones: {
-    shallows: { id: 'shallows', name: '浅瀬', biome: 'shallows', exits: { east: 'kelp' }, enemyTypes: ['crayfish', 'botancho'], maxEnemies: 14, spawnInterval: 1.4, pressureLevel: 0.45, backgroundColor: '#173457', overlayColor: 'rgba(208,236,255,0.08)', transitionMessage: '海流がかわりはじめた……', durationBeforePressure: 20, durationBeforeExit: 35, obstacles: [{ id: 'shallow_rock_01', type: 'circle', x: 286, y: 168, radius: 40, visual: 'rock' }, { id: 'shallow_rock_02', type: 'circle', x: 512, y: 354, radius: 34, visual: 'rock' }, { id: 'shallow_kelp_01', type: 'rect', x: 690, y: 190, width: 34, height: 130, visual: 'kelp' }] },
-    kelp: { id: 'kelp', name: '海藻地帯', biome: 'kelp', exits: { east: 'carcass', west: 'shallows' }, enemyTypes: ['botancho', 'shinju'], maxEnemies: 18, spawnInterval: 1.18, pressureLevel: 0.54, backgroundColor: '#163b3f', overlayColor: 'rgba(122,188,164,0.08)', transitionMessage: '生きものたちが奥へ逃げていく……', durationBeforePressure: 18, durationBeforeExit: 34, obstacles: [{ id: 'kelp_wall_01', type: 'rect', x: 280, y: 70, width: 40, height: 160, visual: 'kelp' }, { id: 'kelp_wall_02', type: 'rect', x: 470, y: 250, width: 46, height: 220, visual: 'kelp' }, { id: 'kelp_wall_03', type: 'rect', x: 660, y: 110, width: 42, height: 200, visual: 'kelp' }] },
-    carcass: { id: 'carcass', name: '死骸地帯', biome: 'carcass', exits: { east: 'branch_point', west: 'kelp' }, enemyTypes: ['crayfish', 'inoshishi', 'golem'], maxEnemies: 21, spawnInterval: 1.0, pressureLevel: 0.72, backgroundColor: '#392d37', overlayColor: 'rgba(210,122,112,0.10)', transitionMessage: '腐肉のにおいが濃くなる……', durationBeforePressure: 17, durationBeforeExit: 32, obstacles: [{ id: 'carcass_mass_01', type: 'circle', x: 470, y: 270, radius: 120, visual: 'carcass' }, { id: 'carcass_debris_01', type: 'rect', x: 320, y: 90, width: 48, height: 120, visual: 'carcass' }, { id: 'carcass_debris_02', type: 'rect', x: 600, y: 338, width: 54, height: 118, visual: 'carcass' }] },
-    branch_point: { id: 'branch_point', name: '分岐海流', biome: 'branch', exits: { east: 'todo_domain', south: 'drowned_shrine', west: 'carcass' }, forwardExits: ['east', 'south'], enemyTypes: ['inoshishi', 'botancho'], maxEnemies: 15, spawnInterval: 1.15, pressureLevel: 0.8, backgroundColor: '#1f2b3d', overlayColor: 'rgba(180,210,240,0.10)', transitionMessage: '流れが二手に裂ける……', durationBeforePressure: 14, durationBeforeExit: 22, obstacles: [{ id: 'branch_rock_01', type: 'circle', x: 386, y: 224, radius: 56, visual: 'rock' }, { id: 'branch_kelp_01', type: 'rect', x: 610, y: 72, width: 40, height: 170, visual: 'kelp' }, { id: 'branch_hole_01', type: 'circle', x: 702, y: 382, radius: 52, visual: 'hole' }] },
-    todo_domain: { id: 'todo_domain', name: 'トド領域', biome: 'tododon', exits: { west: 'branch_point', east: 'tododon_approach' }, forwardExits: ['east'], enemyTypes: ['golem', 'inoshishi'], maxEnemies: 9, spawnInterval: 1.28, pressureLevel: 0.94, backgroundColor: '#20263a', overlayColor: 'rgba(255,255,255,0.14)', transitionMessage: 'トド王のなわばりが近い……', durationBeforePressure: 12, durationBeforeExit: 24, obstacles: [{ id: 'todo_edge_01', type: 'rect', x: 210, y: 64, width: 58, height: 140, visual: 'pillar' }, { id: 'todo_edge_02', type: 'rect', x: 210, y: 336, width: 58, height: 140, visual: 'pillar' }, { id: 'todo_edge_03', type: 'rect', x: 742, y: 64, width: 58, height: 140, visual: 'pillar' }, { id: 'todo_edge_04', type: 'rect', x: 742, y: 336, width: 58, height: 140, visual: 'pillar' }] },
-    tododon_approach: { id: 'tododon_approach', name: 'トドドン接近海路', biome: 'tododon', exits: { west: 'todo_domain', east: 'tododon_gate' }, forwardExits: ['east'], enemyTypes: ['golem', 'frostfang'], maxEnemies: 8, spawnInterval: 1.2, pressureLevel: 1, backgroundColor: '#1d2434', overlayColor: 'rgba(230,244,255,0.12)', transitionMessage: '巨大な影が海を覆う……', durationBeforePressure: 10, durationBeforeExit: 20, obstacles: [{ id: 'approach_wall_north', type: 'rect', x: 366, y: 70, width: 52, height: 164, visual: 'rock' }, { id: 'approach_wall_south', type: 'rect', x: 366, y: 304, width: 52, height: 164, visual: 'rock' }, { id: 'approach_wall_north_2', type: 'rect', x: 588, y: 96, width: 54, height: 146, visual: 'rock' }, { id: 'approach_wall_south_2', type: 'rect', x: 588, y: 298, width: 54, height: 146, visual: 'rock' }] },
-    tododon_gate: { id: 'tododon_gate', name: 'Tododon出現部屋', biome: 'tododon', exits: { west: 'tododon_approach' }, enemyTypes: ['golem'], maxEnemies: 0, spawnInterval: 2.4, pressureLevel: 1, backgroundColor: '#181f30', overlayColor: 'rgba(220,245,255,0.14)', transitionMessage: '王の咆哮が水を震わせる……', durationBeforePressure: 8, durationBeforeExit: 16, boss: 'tododon' },
-    drowned_shrine: { id: 'drowned_shrine', name: '水没神殿', biome: 'shrine', exits: { north: 'branch_point', south: 'gaze_lair' }, forwardExits: ['south'], enemyTypes: ['shinju', 'botancho'], maxEnemies: 10, spawnInterval: 1.35, pressureLevel: 0.95, backgroundColor: '#1a2131', overlayColor: 'rgba(186,154,224,0.10)', transitionMessage: '視線の気配が水底からのぼる……', durationBeforePressure: 12, durationBeforeExit: 22, obstacles: [{ id: 'shrine_pillar_01', type: 'circle', x: 318, y: 172, radius: 34, visual: 'pillar' }, { id: 'shrine_pillar_02', type: 'circle', x: 492, y: 276, radius: 40, visual: 'pillar' }, { id: 'shrine_pillar_03', type: 'circle', x: 654, y: 170, radius: 34, visual: 'pillar' }, { id: 'shrine_pillar_04', type: 'rect', x: 442, y: 384, width: 58, height: 98, visual: 'pillar' }] },
-    gaze_lair: { id: 'gaze_lair', name: '凝視の巣', biome: 'gaze', exits: { north: 'drowned_shrine', south: 'red_light_approach' }, forwardExits: ['south'], enemyTypes: ['shinju'], maxEnemies: 4, spawnInterval: 1.6, pressureLevel: 0.98, backgroundColor: '#141a28', overlayColor: 'rgba(255,120,120,0.10)', transitionMessage: '赤い視線が満ちていく……', durationBeforePressure: 10, durationBeforeExit: 18, obstacles: [{ id: 'gaze_hole_01', type: 'circle', x: 362, y: 224, radius: 44, visual: 'hole' }, { id: 'gaze_hole_02', type: 'circle', x: 594, y: 308, radius: 40, visual: 'hole' }, { id: 'gaze_rock_01', type: 'rect', x: 728, y: 200, width: 46, height: 116, visual: 'rock' }] },
-    red_light_approach: { id: 'red_light_approach', name: '赤光接近回廊', biome: 'gaze', exits: { north: 'gaze_lair', south: 'red_light_gate' }, forwardExits: ['south'], enemyTypes: ['shinju', 'frostfang'], maxEnemies: 8, spawnInterval: 1.28, pressureLevel: 1, backgroundColor: '#171826', overlayColor: 'rgba(255,100,120,0.12)', transitionMessage: '脈動する赤光が迫る……', durationBeforePressure: 9, durationBeforeExit: 18, obstacles: [{ id: 'red_pillar_01', type: 'rect', x: 316, y: 116, width: 54, height: 104, visual: 'pillar' }, { id: 'red_pillar_02', type: 'rect', x: 590, y: 116, width: 54, height: 104, visual: 'pillar' }, { id: 'red_pillar_03', type: 'rect', x: 316, y: 320, width: 54, height: 104, visual: 'pillar' }, { id: 'red_pillar_04', type: 'rect', x: 590, y: 320, width: 54, height: 104, visual: 'pillar' }] },
-    red_light_gate: { id: 'red_light_gate', name: 'Red Light出現部屋', biome: 'gaze', exits: { north: 'red_light_approach' }, enemyTypes: ['shinju'], maxEnemies: 0, spawnInterval: 2.4, pressureLevel: 1, backgroundColor: '#111522', overlayColor: 'rgba(255,120,120,0.14)', transitionMessage: '赤い瞳が闇を切り裂く……', durationBeforePressure: 8, durationBeforeExit: 15, boss: 'red_light' },
+    hub: { id: 'hub', name: '中央庭園', label: '中央庭園', terrainStyle: 'sanctuary', palette: { bg: '#e7f1ec', overlay: 'rgba(206,255,230,0.08)' }, enemyTypes: [], maxEnemies: 0, spawnInterval: 99, durationBeforePressure: 999, durationBeforeExit: 0, exits: { north: 'spring_corridor', east: 'summer_corridor', south: 'autumn_corridor', west: 'winter_corridor' }, obstacles: [] },
+    spring_corridor: { id: 'spring_corridor', name: '春回廊', label: '春回廊', terrainStyle: 'corridor', palette: { bg: '#dae8cf', overlay: 'rgba(244,255,234,0.08)' }, enemyTypes: ['umeguisu'], maxEnemies: 2, spawnInterval: 2.5, durationBeforePressure: 999, durationBeforeExit: 2, exits: { south: 'hub', east: 'pine', north: 'plum', west: 'cherry' }, obstacles: [] },
+    summer_corridor: { id: 'summer_corridor', name: '夏回廊', label: '夏回廊', terrainStyle: 'corridor', palette: { bg: '#d4eee3', overlay: 'rgba(210,255,238,0.08)' }, enemyTypes: ['hototofuji'], maxEnemies: 2, spawnInterval: 2.4, durationBeforePressure: 999, durationBeforeExit: 2, exits: { west: 'hub', north: 'wisteria', east: 'iris', south: 'peony' }, obstacles: [] },
+    autumn_corridor: { id: 'autumn_corridor', name: '秋回廊', label: '秋回廊', terrainStyle: 'corridor', palette: { bg: '#f1dec4', overlay: 'rgba(255,236,210,0.08)' }, enemyTypes: ['gachirinbo'], maxEnemies: 2, spawnInterval: 2.4, durationBeforePressure: 999, durationBeforeExit: 2, exits: { north: 'hub', east: 'bush_clover', south: 'pampas', west: 'chrysanthemum' }, obstacles: [] },
+    winter_corridor: { id: 'winter_corridor', name: '冬回廊', label: '冬回廊', terrainStyle: 'corridor', palette: { bg: '#d7e2ef', overlay: 'rgba(225,240,255,0.08)' }, enemyTypes: ['yanagaeru'], maxEnemies: 2, spawnInterval: 2.4, durationBeforePressure: 999, durationBeforeExit: 2, exits: { east: 'hub', north: 'maple', west: 'willow', south: 'paulownia' }, obstacles: [] },
   },
   special: {
     maxEnergy: 100,
@@ -222,7 +242,7 @@ const CONFIG = {
         startMode: 'boss_battle',
         bosses: [
           { id: 'tododon', label: 'VS Tododon', description: 'Territorial giant creature battle', imageKey: 'boss_tododon' },
-          { id: 'red_light', label: 'VS Red Light', description: 'Movement punishment gaze battle', imageKey: 'boss_red_light' },
+          { id: 'red_light', label: 'VS Red Light Biolume', description: 'Pulse rhythm ecosystem battle', imageKey: 'boss_red_light' },
         ],
       },
     ],
@@ -230,7 +250,7 @@ const CONFIG = {
   bossBattle: {
     bosses: {
       tododon: { id: 'tododon', label: 'VS Tododon', description: '巨大な縄張り生物との位置取り戦', imageKey: 'boss_tododon' },
-      red_light: { id: 'red_light', label: 'VS Red Light', description: '動くと罰を受ける視線戦', imageKey: 'boss_red_light' },
+      red_light: { id: 'red_light', label: 'VS Red Light Biolume', description: '光脈のリズムを読む生態戦', imageKey: 'boss_red_light' },
     },
   },
   tododon: {
@@ -322,12 +342,12 @@ const CONFIG = {
   assets: {
     playerImage: 'assets/Crayfish.png',
     creatures: {
-      crayfish: 'assets/Crayfish.png',
+      tsurumatsu: 'assets/Crayfish.png',
       botancho: 'assets/botancho.png',
-      inoshishi: 'assets/inoshissi.png',
-      frostfang: 'assets/frostfang.png',
-      golem: 'assets/golem.png',
-      shinju: 'assets/shinju.png',
+      hagnoshishi: 'assets/inoshissi.png',
+      yanagaeru: 'assets/yanagaeru.png',
+      gotouou: 'assets/gotouou.png',
+      kikusakazuki: 'assets/kikusakazuki.png',
     },
     bosses: {
       tododon: 'assets/bosses/tododon.png',
@@ -370,7 +390,7 @@ const CONFIG = {
     rangeFadeDuration: 0.6,
   },
   worldStateDefaults: {
-    currentZoneId: 'shallows',
+    currentZoneId: 'hub',
     previousZoneId: null,
     zoneTimer: 0,
     pressure: 0,
@@ -390,6 +410,22 @@ const CONFIG = {
     boundaryMessageCooldown: 0,
   },
 };
+
+
+Object.assign(CONFIG.zones, {
+  pine: { id:'pine', name:'松領', label:'松領', terrainStyle:'wind_arena', palette:{bg:'#b9d6b8',overlay:'rgba(209,242,210,0.08)'}, enemyTypes:['tsurumatsu'], maxEnemies:7, spawnInterval:1.25, durationBeforePressure:999, durationBeforeExit:5, exits:{west:'spring_corridor'}, territoryBoss:'tododon', obstacles:[] },
+  plum: { id:'plum', name:'梅領', label:'梅領', terrainStyle:'branch_arena', palette:{bg:'#e1d7ee',overlay:'rgba(244,228,255,0.08)'}, enemyTypes:['umeguisu'], maxEnemies:8, spawnInterval:1.15, durationBeforePressure:999, durationBeforeExit:5, exits:{south:'spring_corridor'}, obstacles:[] },
+  cherry: { id:'cherry', name:'桜領', label:'桜領', terrainStyle:'open_arena', palette:{bg:'#f2d7e3',overlay:'rgba(255,232,242,0.08)'}, enemyTypes:['utagezakura'], maxEnemies:10, spawnInterval:1.0, durationBeforePressure:999, durationBeforeExit:5, exits:{east:'spring_corridor'}, obstacles:[] },
+  wisteria: { id:'wisteria', name:'藤領', label:'藤領', terrainStyle:'vine_arena', palette:{bg:'#d9d0f1',overlay:'rgba(236,223,255,0.08)'}, enemyTypes:['hototofuji'], maxEnemies:8, spawnInterval:1.18, durationBeforePressure:999, durationBeforeExit:5, exits:{south:'summer_corridor'}, obstacles:[] },
+  iris: { id:'iris', name:'杜若領', label:'杜若領', terrainStyle:'bridge_lanes', palette:{bg:'#cde5f1',overlay:'rgba(224,246,255,0.08)'}, enemyTypes:['yatsutsubata'], maxEnemies:8, spawnInterval:1.15, durationBeforePressure:999, durationBeforeExit:5, exits:{west:'summer_corridor'}, obstacles:[] },
+  peony: { id:'peony', name:'牡丹領', label:'牡丹領', terrainStyle:'flower_arena', palette:{bg:'#f0d1da',overlay:'rgba(255,225,235,0.08)'}, enemyTypes:['botancho'], maxEnemies:9, spawnInterval:1.05, durationBeforePressure:999, durationBeforeExit:5, exits:{north:'summer_corridor'}, obstacles:[] },
+  bush_clover: { id:'bush_clover', name:'萩領', label:'萩領', terrainStyle:'narrow_paths', palette:{bg:'#d9c8b6',overlay:'rgba(245,224,198,0.08)'}, enemyTypes:['hagnoshishi'], maxEnemies:7, spawnInterval:1.2, durationBeforePressure:999, durationBeforeExit:5, exits:{west:'autumn_corridor'}, obstacles:[] },
+  pampas: { id:'pampas', name:'芒領', label:'芒領', terrainStyle:'moon_field', palette:{bg:'#d6d0b7',overlay:'rgba(244,239,210,0.08)'}, enemyTypes:['gachirinbo'], maxEnemies:8, spawnInterval:1.15, durationBeforePressure:999, durationBeforeExit:5, exits:{north:'autumn_corridor'}, obstacles:[] },
+  chrysanthemum: { id:'chrysanthemum', name:'菊領', label:'菊領', terrainStyle:'ring_arena', palette:{bg:'#ebdf9f',overlay:'rgba(255,245,196,0.08)'}, enemyTypes:['kikusakazuki'], maxEnemies:7, spawnInterval:1.2, durationBeforePressure:999, durationBeforeExit:5, exits:{east:'autumn_corridor'}, obstacles:[] },
+  maple: { id:'maple', name:'紅葉領', label:'紅葉領', terrainStyle:'forest_arena', palette:{bg:'#e0b892',overlay:'rgba(255,214,186,0.08)'}, enemyTypes:['momijika'], maxEnemies:8, spawnInterval:1.1, durationBeforePressure:999, durationBeforeExit:5, exits:{south:'winter_corridor'}, obstacles:[] },
+  willow: { id:'willow', name:'柳領', label:'柳領', terrainStyle:'wetland_arena', palette:{bg:'#c4d8c0',overlay:'rgba(210,245,213,0.08)'}, enemyTypes:['yanagaeru'], maxEnemies:9, spawnInterval:1.1, durationBeforePressure:999, durationBeforeExit:5, exits:{east:'winter_corridor'}, obstacles:[] },
+  paulownia: { id:'paulownia', name:'桐領', label:'桐領', terrainStyle:'sky_ring', palette:{bg:'#d9d2ea',overlay:'rgba(236,229,255,0.08)'}, enemyTypes:['gotouou'], maxEnemies:6, spawnInterval:1.25, durationBeforePressure:999, durationBeforeExit:5, exits:{north:'winter_corridor'}, territoryBoss:'red_light', obstacles:[] }
+});
 
 const gameState = {
   time: 0,
@@ -528,7 +564,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
     manualShots: [],
     input: { manualFirePressed: false, manualFireHeld: false },
     rangeVisibility: { visible: false, timer: 0 },
-    world: { ...CONFIG.worldStateDefaults, visitedZones: { shallows: true }, clearedZones: {}, availableExits: {} },
+    world: { ...CONFIG.worldStateDefaults, visitedZones: { hub: true }, clearedZones: {}, availableExits: {} },
     runCoinsEarned: 0, runCompleted: false,
     player: {
       x: CONFIG.canvas.width / 2,
@@ -1215,8 +1251,8 @@ function getSafeZones() {
 
 function getCurrentZone() {
   const zones = getSafeZones();
-  const zoneId = String(gameState?.world?.currentZoneId || 'shallows');
-  return zones[zoneId] || zones.shallows || null;
+  const zoneId = String(gameState?.world?.currentZoneId || 'hub');
+  return zones[zoneId] || zones.hub || null;
 }
 
 function getCurrentZoneObstacles() {
@@ -1739,8 +1775,8 @@ function spawnEnemy() {
   const baseHp = Number.isFinite(CONFIG.enemy.baseHp) ? CONFIG.enemy.baseHp : 1;
   const hp = baseHp * hpMultiplier;
   const zone = getCurrentZone();
-  const zoneCreatures = Array.isArray(zone?.enemyTypes) && zone.enemyTypes.length > 0 ? zone.enemyTypes : ['crayfish'];
-  const creatureId = zoneCreatures[Math.floor(Math.random() * zoneCreatures.length)] || 'crayfish';
+  const zoneCreatures = Array.isArray(zone?.enemyTypes) && zone.enemyTypes.length > 0 ? zone.enemyTypes : ['tsurumatsu'];
+  const creatureId = zoneCreatures[Math.floor(Math.random() * zoneCreatures.length)] || 'tsurumatsu';
   const requestedArchetypeKey = CONFIG.enemy?.creatureRoles?.[creatureId] || 'basic';
   const contactProfileId = getEnemyContactProfileId({ creatureId });
   const archetype = getEnemyArchetypeId(requestedArchetypeKey);
@@ -2557,8 +2593,8 @@ function updatePlaying(dt) {
   const exitStart = Math.max(pressureStart, getZoneExitUnlockTime(zone));
   world.availableExits = getAvailableExitsForZone(zone, world);
   world.pressure = world.zoneTimer <= pressureStart ? 0 : clamp((world.zoneTimer - pressureStart) / Math.max(0.1, exitStart - pressureStart), 0, 1);
-  if (zone?.id === 'gaze_lair' && world.exitUnlocked && !world.redLightBossTriggered) {
-    setZoneMessage('紅い灯りがこちらを見ている……', CONFIG.world?.messageDuration);
+  if (zone?.id === 'paulownia' && world.exitUnlocked && !world.redLightBossTriggered) {
+    setZoneMessage('光の鼓動が中央庭園への路をひらく。', CONFIG.world?.messageDuration);
   }
   updatePlayerMovement(dt);
   updatePlayerAttack(dt);
@@ -3323,7 +3359,7 @@ function drawDuelBossHpBar() {
   if (gameState?.duel?.bossType === 'red_light') {
     const b = gameState?.duel?.boss; if (!b || gameState.phase !== 'duel') return;
     const w = 520; const h = 18; const x = (CONFIG.canvas.width - w) / 2; const y = 18; const pct = clamp((b.hp || 0) / (b.maxHp || 1), 0, 1);
-    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x, y, w, h); ctx.fillStyle = '#ff7272'; ctx.fillRect(x, y, w * pct, h); ctx.strokeStyle = '#ffd5d5'; ctx.strokeRect(x, y, w, h); ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('Red Light', x, y - 6); return;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x, y, w, h); ctx.fillStyle = '#ff7272'; ctx.fillRect(x, y, w * pct, h); ctx.strokeStyle = '#ffd5d5'; ctx.strokeRect(x, y, w, h); ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('Red Light Biolume', x, y - 6); return;
   }
   const t = gameState?.duel?.tododon; if (!t || gameState.phase !== 'duel') return;
   const w = 520; const h = 18; const x = (CONFIG.canvas.width - w) / 2; const y = 18; const pct = clamp((t.hp||0)/(t.maxHp||1),0,1);
@@ -3383,7 +3419,7 @@ function drawHud() {
   }
   const zone = getCurrentZone();
   ctx.fillStyle = '#d7ecff';
-  ctx.fillText(`Zone: ${zone?.name || '浅瀬'}`, 26, 182);
+  ctx.fillText(`Zone: ${zone?.name || '中央庭園'}`, 26, 182);
   if (CONFIG.debug?.fastExitUnlockEnabled) {
     const unlockTime = getZoneExitUnlockTime(zone);
     const timer = Number(gameState.world?.zoneTimer) || 0;
@@ -3618,7 +3654,7 @@ function drawEnemies() {
   (gameState.enemies || []).forEach(e => {
     drawEntityShadow(e, CONFIG.visuals.enemyShadowColor);
     const isDrifter = e?.archetype === drifterType;
-    const key = `creature_${e?.creatureId || 'crayfish'}`;
+    const key = `creature_${e?.creatureId || 'tsurumatsu'}`;
     drawEntityWithFallback(e, gameState.images[key], isDrifter ? '#96c9ff' : '#85ff8a');
     const contactProfile = getEnemyContactProfile(e);
     if (contactProfile?.slowsPlayer) {
