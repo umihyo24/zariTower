@@ -4218,6 +4218,22 @@ window.addEventListener('keydown', e => {
     return;
   }
 
+
+  if (e.key === 'F3') {
+    e.preventDefault();
+    if (!gameState.debug || typeof gameState.debug !== 'object') gameState.debug = { visible: false, menuOpen: false, bossMenuOpen: false };
+    gameState.debug.visible = !Boolean(gameState.debug.visible);
+    if (!gameState.debug.visible) {
+      gameState.debug.menuOpen = false;
+      gameState.debug.bossMenuOpen = false;
+      gameState.startUi.debugMenuOpen = false;
+      gameState.startUi.bossBattleMenuOpen = false;
+      syncStartMenuUi();
+    }
+    syncDebugUi();
+    return;
+  }
+
   if (BLOCK_KEYS.includes(key)) e.preventDefault();
   gameState.keys[key] = true;
 });
@@ -4341,17 +4357,3 @@ tododonShopCloseBtn?.addEventListener('click', () => {
   await preloadImages();
   requestAnimationFrame(loop);
 })();
-  if (e.key === 'F3') {
-    e.preventDefault();
-    if (!gameState.debug || typeof gameState.debug !== 'object') gameState.debug = { visible: false, menuOpen: false, bossMenuOpen: false };
-    gameState.debug.visible = !Boolean(gameState.debug.visible);
-    if (!gameState.debug.visible) {
-      gameState.debug.menuOpen = false;
-      gameState.debug.bossMenuOpen = false;
-      gameState.startUi.debugMenuOpen = false;
-      gameState.startUi.bossBattleMenuOpen = false;
-      syncStartMenuUi();
-    }
-    syncDebugUi();
-    return;
-  }
