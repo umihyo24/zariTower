@@ -588,6 +588,17 @@ const tododonShopCloseBtn = document.getElementById('tododonShopCloseBtn');
 // State / Run Lifecycle
 // ==============================
 
+
+function ensureDebugState() {
+  if (!gameState.debug || typeof gameState.debug !== 'object') {
+    gameState.debug = {
+      visible: false,
+      menuOpen: false,
+      bossMenuOpen: false,
+    };
+  }
+}
+
 function resetState(nextPhase = gameState.phase || 'start') {
   if (!gameState.debug || typeof gameState.debug !== 'object') gameState.debug = {};
   if (!gameState.startUi || typeof gameState.startUi !== 'object') gameState.startUi = {};
@@ -4260,14 +4271,16 @@ startNormalBtn?.addEventListener('click', () => {
 
 openDebugMenuBtn?.addEventListener('click', () => {
   if (gameState.phase !== 'start') return;
-  if (!gameState?.debug?.visible) return;
+  ensureDebugState();
+  gameState.debug.visible = true;
   gameState.debug.menuOpen = true;
+  gameState.debug.bossMenuOpen = true;
   gameState.startUi.debugMenuOpen = true;
-  gameState.debug.bossMenuOpen = false;
-  gameState.startUi.bossBattleMenuOpen = false;
+  gameState.startUi.bossBattleMenuOpen = true;
   syncStartMenuUi();
   renderDebugMenu();
   syncStartMetaStats();
+  syncDebugUi();
 });
 
 debugBackBtn?.addEventListener('click', () => {
