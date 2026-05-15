@@ -15,6 +15,8 @@
 
     <section class="canvas-wrap">
       <canvas id="gameCanvas" width="960" height="540" aria-label="Crayfish survival game"></canvas>
+      <button id="debugToggleBtn" class="debug-toggle" type="button" aria-pressed="false">DEBUG</button>
+      <div id="debugInfoPanel" class="debug-panel hidden" aria-live="polite"></div>
 
 
       <div id="startModal" class="overlay" role="dialog" aria-modal="true" aria-labelledby="startTitle">
@@ -29,11 +31,14 @@
             <button id="openTododonShopBtn" type="button" class="hidden">Tododon Shop</button>
             <button id="openDebugMenuBtn" type="button">Debug Menu</button>
           </div>
-          <div id="debugMenu" class="hidden">
+          <div id="debugMenu" class="hidden debug-menu-modal">
+            <div class="debug-menu-content">
+            <button id="debugMenuCloseBtn" class="debug-close-button" type="button" aria-label="Close debug menu">✕</button>
             <h3>Debug Menu</h3>
             <div id="debugPresetOptions" class="debug-preset-options"></div>
             <button id="startDebugBtn" type="button" class="hidden" aria-hidden="true" tabindex="-1">Start Debug Run</button>
             <button id="debugBackBtn" type="button">Back</button>
+            </div>
           </div>
         </div>
       </div>
