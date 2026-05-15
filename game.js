@@ -222,6 +222,17 @@ const CONFIG = {
   },
   ui: {
     maxNumberShortcuts: 9,
+    debug: {
+      hudPanelX: 16,
+      hudPanelY: 16,
+      hudPanelWidth: 320,
+      hudBaseHeight: 170,
+      hudLineHeight: 18,
+      hudTextStartX: 26,
+      hudTextStartY: 36,
+      hudBossDebugStartY: 366,
+      menuMaxHeightVh: 80,
+    },
   },
   meta: {
     coinsPerKill: 1,
@@ -230,6 +241,9 @@ const CONFIG = {
     debugRewardsEnabled: false,
   },
   debug: {
+    visible: false,
+    menuOpen: false,
+    bossMenuOpen: false,
     enabled: false,
     fastExitUnlockEnabled: true,
     fastExitUnlockSeconds: 3,
@@ -546,6 +560,9 @@ const openDebugMenuBtn = document.getElementById('openDebugMenuBtn');
 const startMainMenu = document.getElementById('startMainMenu');
 const debugMenu = document.getElementById('debugMenu');
 const debugPresetOptions = document.getElementById('debugPresetOptions');
+const debugToggleBtn = document.getElementById('debugToggleBtn');
+const debugInfoPanel = document.getElementById('debugInfoPanel');
+const debugMenuCloseBtn = document.getElementById('debugMenuCloseBtn');
 const startMetaStats = document.getElementById('startMetaStats');
 const startDebugBtn = document.getElementById('startDebugBtn');
 const debugBackBtn = document.getElementById('debugBackBtn');
@@ -572,7 +589,12 @@ const tododonShopCloseBtn = document.getElementById('tododonShopCloseBtn');
 // ==============================
 
 function resetState(nextPhase = gameState.phase || 'start') {
+  if (!gameState.debug || typeof gameState.debug !== 'object') gameState.debug = {};
+  if (!gameState.startUi || typeof gameState.startUi !== 'object') gameState.startUi = {};
   const preservedDebug = {
+    visible: Boolean(gameState?.debug?.visible),
+    menuOpen: Boolean(gameState?.debug?.menuOpen),
+    bossMenuOpen: Boolean(gameState?.debug?.bossMenuOpen),
     enabled: Boolean(gameState?.debug?.enabled),
     targetSurvivalTimeOverride: Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride) ? gameState.debug.targetSurvivalTimeOverride : null,
     bossBattleMode: Boolean(gameState?.debug?.bossBattleMode),
@@ -643,7 +665,11 @@ function resetState(nextPhase = gameState.phase || 'start') {
 }
 
 function startRun() {
+  if (!gameState.debug || typeof gameState.debug !== 'object') gameState.debug = { visible: false, menuOpen: false, bossMenuOpen: false };
   const preservedDebug = {
+    visible: Boolean(gameState?.debug?.visible),
+    menuOpen: Boolean(gameState?.debug?.menuOpen),
+    bossMenuOpen: Boolean(gameState?.debug?.bossMenuOpen),
     enabled: Boolean(gameState?.debug?.enabled),
     targetSurvivalTimeOverride: Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride) ? gameState.debug.targetSurvivalTimeOverride : null,
     bossBattleMode: Boolean(gameState?.debug?.bossBattleMode),
@@ -723,7 +749,7 @@ function syncStartMetaStats() {
 }
 
 function syncStartMenuUi() {
-  const isDebugMenuOpen = Boolean(gameState?.startUi?.debugMenuOpen);
+  const isDebugMenuOpen = Boolean(gameState?.startUi?.debugMenuOpen) && Boolean(gameState?.debug?.visible);
   startMainMenu?.classList.toggle('hidden', isDebugMenuOpen);
   debugMenu?.classList.toggle('hidden', !isDebugMenuOpen);
   const shopUnlocked = Boolean(gameState?.meta?.unlockedFlags?.tododonShop);
@@ -1188,6 +1214,7 @@ function getTargetSurvivalTime() {
 }
 
 function renderDebugMenu() {
+  if (!gameState.debug || typeof gameState.debug !== 'object') gameState.debug = { visible: false, menuOpen: false, bossMenuOpen: false };
   if (!debugPresetOptions) return;
   debugPresetOptions.innerHTML = '';
   const fragment = document.createDocumentFragment();
@@ -1209,14 +1236,15 @@ function renderDebugMenu() {
   });
   fragment.appendChild(normalBtn);
 
-  const isBossOpen = Boolean(gameState?.startUi?.bossBattleMenuOpen);
+  const isBossOpen = Boolean(gameState?.debug?.bossMenuOpen);
   const toggleBossBtn = document.createElement('button');
   toggleBossBtn.type = 'button';
   toggleBossBtn.className = 'debug-preset-btn';
   toggleBossBtn.textContent = `${isBossOpen ? '▼' : '▶'} Boss Battle`;
   toggleBossBtn.addEventListener('click', () => {
     if (gameState.phase !== 'start') return;
-    gameState.startUi.bossBattleMenuOpen = !Boolean(gameState?.startUi?.bossBattleMenuOpen);
+    if (!gameState?.debug?.visible) return;
+    gameState.debug.bossMenuOpen = !Boolean(gameState?.debug?.bossMenuOpen);
     renderDebugMenu();
   });
   fragment.appendChild(toggleBossBtn);
@@ -1244,12 +1272,15 @@ function renderDebugMenu() {
 }
 
 function startBossBattleMode(bossType) {
+  if (!gameState?.debug?.visible) return;
   if (gameState.phase !== 'start') return;
   resetState('playing');
   gameState.debug.enabled = true;
   gameState.debug.targetSurvivalTimeOverride = null;
   gameState.debug.bossBattleMode = true;
   gameState.debug.bossType = bossType;
+  gameState.debug.menuOpen = false;
+  gameState.debug.bossMenuOpen = false;
   gameState.startUi.debugMenuOpen = false;
   gameState.startUi.bossBattleMenuOpen = false;
   startModal?.classList.add('hidden');
@@ -3164,6 +3195,7 @@ function updateRangeVisibility(dt) {
 function update(dt) {
   updateRangeVisibility(dt);
   updateSpecialEnergy(dt);
+  updateDebugUiState();
   switch (gameState.phase) {
     case 'playing':
       if (gameState.resumeGraceTimer > 0) updateResumeGrace(dt);
@@ -3183,6 +3215,23 @@ function update(dt) {
   }
 
   detectExitUnlockedOverwrite();
+}
+
+function updateDebugUiState() {
+  if (!gameState.debug || typeof gameState.debug !== 'object') gameState.debug = { visible: false, menuOpen: false, bossMenuOpen: false };
+  if (!gameState.debug.visible) {
+    gameState.debug.menuOpen = false;
+    gameState.debug.bossMenuOpen = false;
+  }
+  if (!debugInfoPanel) return;
+  if (!gameState.debug.visible) {
+    debugInfoPanel.textContent = '';
+    return;
+  }
+  const zone = getCurrentZone();
+  const hp = Math.ceil(gameState?.player?.hp || 0);
+  const maxHp = Math.ceil(gameState?.player?.maxHp || 0);
+  debugInfoPanel.textContent = `HP ${hp}/${maxHp} | Lv ${gameState.level} | Enemies ${(gameState.enemies || []).length}/${getZoneMaxEnemies()} | Time ${formatTime(gameState.runTime)} | Zone ${zone?.name || '中央庭園'}`;
 }
 
 // ==============================
@@ -3498,12 +3547,14 @@ function drawDuelBossHpBar() {
 }
 
 function drawHud() {
+  const debugUi = CONFIG.ui?.debug || {};
+  const showDebug = Boolean(gameState?.debug?.visible);
   const p = gameState.player;
   const hpPct = p.hp / p.maxHp;
   const xpPct = gameState.xp / gameState.xpToNext;
 
   ctx.fillStyle = '#0008';
-  ctx.fillRect(16, 16, 320, 170);
+  ctx.fillRect(debugUi.hudPanelX, debugUi.hudPanelY, debugUi.hudPanelWidth, debugUi.hudBaseHeight);
   ctx.fillStyle = '#fff';
   ctx.font = '14px sans-serif';
   ctx.fillText(`HP: ${Math.ceil(p.hp)} / ${p.maxHp}`, 26, 36);
@@ -3527,7 +3578,7 @@ function drawHud() {
   ctx.fillText(`Mode: ${modeLabel}`, 26, 144);
   ctx.fillStyle = defaultTextColor;
   ctx.fillText(`Energy: ${Math.floor(energy)} / ${Math.floor(maxEnergy)}`, 26, 162);
-  if (gameState?.debug?.enabled && Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride)) {
+  if (showDebug && gameState?.debug?.enabled && Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride)) {
     ctx.fillText(`DEBUG: Tododon ${formatTime(gameState.debug.targetSurvivalTimeOverride)}`, 160, 126);
   }
 
@@ -3551,7 +3602,7 @@ function drawHud() {
   const zone = getCurrentZone();
   ctx.fillStyle = '#d7ecff';
   ctx.fillText(`Zone: ${zone?.name || '中央庭園'}`, 26, 182);
-  if (CONFIG.debug?.fastExitUnlockEnabled) {
+  if (showDebug && CONFIG.debug?.fastExitUnlockEnabled) {
     const unlockTime = getZoneExitUnlockTime(zone);
     const timer = Number(gameState.world?.zoneTimer) || 0;
     const shouldUnlockByTimer = Number(gameState.world?.zoneTimer || 0) >= getZoneExitUnlockTime(getCurrentZone());
@@ -3566,7 +3617,7 @@ function drawHud() {
     ctx.fillText(`Should Unlock By Timer: ${shouldUnlockByTimer}`, 26, 282);
   }
 
-  if (gameState?.debug?.enabled && gameState?.duel?.bossType === 'red_light') {
+  if (showDebug && gameState?.debug?.enabled && gameState?.duel?.bossType === 'red_light') {
     const boss = gameState?.duel?.boss;
     const danger = isRedLightDangerActive();
     const hidden = isPlayerHiddenFromRedLight();
@@ -3582,7 +3633,7 @@ function drawHud() {
     ctx.fillText(`Player HP: ${Math.ceil(gameState?.player?.hp || 0)} / ${Math.ceil(gameState?.player?.maxHp || 0)}`, 26, 398);
     ctx.fillText(`Danger Active: ${danger}`, 26, 414);
   }
-  if (gameState?.duel?.active === true || gameState?.duel?.bossType) {
+  if (showDebug && (gameState?.duel?.active === true || gameState?.duel?.bossType)) {
     const boss = getActiveBossTarget();
     if (boss) {
       ctx.fillStyle = 'rgba(230,255,230,0.9)';
@@ -4193,7 +4244,10 @@ startNormalBtn?.addEventListener('click', () => {
 
 openDebugMenuBtn?.addEventListener('click', () => {
   if (gameState.phase !== 'start') return;
+  if (!gameState?.debug?.visible) return;
+  gameState.debug.menuOpen = true;
   gameState.startUi.debugMenuOpen = true;
+  gameState.debug.bossMenuOpen = false;
   gameState.startUi.bossBattleMenuOpen = false;
   syncStartMenuUi();
   renderDebugMenu();
@@ -4202,9 +4256,41 @@ openDebugMenuBtn?.addEventListener('click', () => {
 
 debugBackBtn?.addEventListener('click', () => {
   if (gameState.phase !== 'start') return;
+  gameState.debug.menuOpen = false;
+  gameState.debug.bossMenuOpen = false;
   gameState.startUi.debugMenuOpen = false;
   syncStartMenuUi();
 });
+debugMenuCloseBtn?.addEventListener('click', () => {
+  if (gameState.phase !== 'start') return;
+  gameState.debug.menuOpen = false;
+  gameState.debug.bossMenuOpen = false;
+  gameState.startUi.debugMenuOpen = false;
+  syncStartMenuUi();
+});
+debugToggleBtn?.addEventListener('click', () => {
+  if (!gameState.debug || typeof gameState.debug !== 'object') gameState.debug = { visible: false, menuOpen: false, bossMenuOpen: false };
+  gameState.debug.visible = !Boolean(gameState.debug.visible);
+  if (!gameState.debug.visible) {
+    gameState.debug.menuOpen = false;
+    gameState.debug.bossMenuOpen = false;
+    gameState.startUi.debugMenuOpen = false;
+    gameState.startUi.bossBattleMenuOpen = false;
+  }
+  syncStartMenuUi();
+  renderDebugMenu();
+  syncDebugUi();
+});
+
+function syncDebugUi() {
+  if (!gameState.debug || typeof gameState.debug !== 'object') gameState.debug = { visible: false, menuOpen: false, bossMenuOpen: false };
+  const visible = Boolean(gameState.debug.visible);
+  if (debugToggleBtn) debugToggleBtn.setAttribute('aria-pressed', String(visible));
+  if (debugInfoPanel) debugInfoPanel.classList.toggle('hidden', !visible);
+  const maxHeightVh = Number.isFinite(CONFIG.ui?.debug?.menuMaxHeightVh) ? CONFIG.ui.debug.menuMaxHeightVh : 80;
+  const menuContent = debugMenu?.querySelector?.('.debug-menu-content');
+  if (menuContent) menuContent.style.maxHeight = `${maxHeightVh}vh`;
+}
 
 
 restartBtn.addEventListener('click', () => {
@@ -4248,9 +4334,24 @@ tododonShopCloseBtn?.addEventListener('click', () => {
 
 (async function init() {
   resetState('start');
-    syncStartMenuUi();
+  syncStartMenuUi();
+  syncDebugUi();
   renderDebugMenu();
   syncStartMetaStats();
   await preloadImages();
   requestAnimationFrame(loop);
 })();
+  if (e.key === 'F3') {
+    e.preventDefault();
+    if (!gameState.debug || typeof gameState.debug !== 'object') gameState.debug = { visible: false, menuOpen: false, bossMenuOpen: false };
+    gameState.debug.visible = !Boolean(gameState.debug.visible);
+    if (!gameState.debug.visible) {
+      gameState.debug.menuOpen = false;
+      gameState.debug.bossMenuOpen = false;
+      gameState.startUi.debugMenuOpen = false;
+      gameState.startUi.bossBattleMenuOpen = false;
+      syncStartMenuUi();
+    }
+    syncDebugUi();
+    return;
+  }
