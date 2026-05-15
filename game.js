@@ -243,6 +243,7 @@ const CONFIG = {
         bosses: [
           { id: 'tododon', label: 'VS Tododon', description: 'Territorial giant creature battle', imageKey: 'boss_tododon' },
           { id: 'red_light', label: 'VS Red Light Biolume', description: 'Pulse rhythm ecosystem battle', imageKey: 'boss_red_light' },
+          { id: 'matsuru', label: 'VS Matsuru / マツル', description: 'Counter timing fight in the pine field', imageKey: 'boss_matsuru' },
         ],
       },
     ],
@@ -251,6 +252,7 @@ const CONFIG = {
     bosses: {
       tododon: { id: 'tododon', label: 'VS Tododon', description: '巨大な縄張り生物との位置取り戦', imageKey: 'boss_tododon' },
       red_light: { id: 'red_light', label: 'VS Red Light Biolume', description: '光脈のリズムを読む生態戦', imageKey: 'boss_red_light' },
+      matsuru: { id: 'matsuru', label: 'VS Matsuru / マツル', description: '松風の隙を突く間合い戦', imageKey: 'boss_matsuru' },
     },
   },
   tododon: {
@@ -338,6 +340,33 @@ const CONFIG = {
     manualShotDamage: 13,
     manualShotRadius: 5,
     manualShotLifetime: 1.6,
+    matsuruX: 770,
+    matsuruY: 270,
+    matsuruRadius: 84,
+    matsuruHp: 560,
+    matsuruMoveSpeed: 90,
+    matsuruIdleDuration: 1.2,
+    matsuruPrepareDuration: 0.8,
+    matsuruWindDuration: 1.5,
+    matsuruReturnDuration: 1.0,
+    matsuruRecoveryDuration: 2.0,
+    matsuruCounterTellDuration: 0.3,
+    matsuruCounterDuration: 0.45,
+    matsuruNeedleCooldown: 5.2,
+    matsuruNeedleSpeed: 160,
+    matsuruNeedleDamage: 12,
+    matsuruNeedleFanCount: 5,
+    matsuruNeedleLife: 3.6,
+    matsuruWindDamage: 8,
+    matsuruWindHitCooldown: 0.25,
+    matsuruWindPush: 280,
+    matsuruCounterDamage: 22,
+    matsuruCounterRange: 170,
+    matsuruCounterSpeed: 560,
+    matsuruPassiveReduction: 0.15,
+    matsuruPassiveKnockbackScale: 0.22,
+    matsuruPassiveEmpowerDelay: 4.5,
+    matsuruPassiveEmpowerDamageScale: 1.35,
   },
   assets: {
     playerImage: 'assets/Crayfish.png',
@@ -352,6 +381,7 @@ const CONFIG = {
     bosses: {
       tododon: 'assets/bosses/tododon.png',
       red_light: 'assets/bosses/red_light.png',
+      matsuru: 'assets/monsters/matsuru.png',
     },
   },
   visuals: {
@@ -413,7 +443,7 @@ const CONFIG = {
 
 
 Object.assign(CONFIG.zones, {
-  pine: { id:'pine', name:'松領', label:'松領', terrainStyle:'wind_arena', palette:{bg:'#b9d6b8',overlay:'rgba(209,242,210,0.08)'}, enemyTypes:['tsurumatsu'], maxEnemies:7, spawnInterval:1.25, durationBeforePressure:999, durationBeforeExit:5, exits:{west:'spring_corridor'}, territoryBoss:'tododon', obstacles:[] },
+  pine: { id:'pine', name:'松領', label:'松領', terrainStyle:'wind_arena', palette:{bg:'#b9d6b8',overlay:'rgba(209,242,210,0.08)'}, enemyTypes:['tsurumatsu'], maxEnemies:7, spawnInterval:1.25, durationBeforePressure:999, durationBeforeExit:5, exits:{west:'spring_corridor'}, territoryBoss:'matsuru', obstacles:[] },
   plum: { id:'plum', name:'梅領', label:'梅領', terrainStyle:'branch_arena', palette:{bg:'#e1d7ee',overlay:'rgba(244,228,255,0.08)'}, enemyTypes:['umeguisu'], maxEnemies:8, spawnInterval:1.15, durationBeforePressure:999, durationBeforeExit:5, exits:{south:'spring_corridor'}, obstacles:[] },
   cherry: { id:'cherry', name:'桜領', label:'桜領', terrainStyle:'open_arena', palette:{bg:'#f2d7e3',overlay:'rgba(255,232,242,0.08)'}, enemyTypes:['utagezakura'], maxEnemies:10, spawnInterval:1.0, durationBeforePressure:999, durationBeforeExit:5, exits:{east:'spring_corridor'}, obstacles:[] },
   wisteria: { id:'wisteria', name:'藤領', label:'藤領', terrainStyle:'vine_arena', palette:{bg:'#d9d0f1',overlay:'rgba(236,223,255,0.08)'}, enemyTypes:['hototofuji'], maxEnemies:8, spawnInterval:1.18, durationBeforePressure:999, durationBeforeExit:5, exits:{south:'summer_corridor'}, obstacles:[] },
@@ -892,6 +922,33 @@ function startRedLightEncounter() {
   };
 }
 
+function startMatsuruEncounter() {
+  const p = gameState?.player;
+  const c = CONFIG.duel || {};
+  if (!p) return;
+  gameState.phase = 'duel';
+  gameState.isPaused = false;
+  gameState.event = null;
+  gameState.pendingEvent = null;
+  gameState.enemies = [];
+  gameState.projectiles = [];
+  gameState.particles = [];
+  gameState.manualShots = [];
+  p.x = clamp(Number(c.playerStartX) || 160, p.radius, CONFIG.canvas.width - p.radius);
+  p.y = clamp(Number(c.playerStartY) || 270, p.radius, CONFIG.canvas.height - p.radius);
+  gameState.duel = {
+    active: true,
+    bossType: 'matsuru',
+    boss: {
+      id: 'duel_matsuru', x: Number(c.matsuruX) || 770, y: Number(c.matsuruY) || 270, radius: Number(c.matsuruRadius) || 84, hp: Number(c.matsuruHp) || 560, maxHp: Number(c.matsuruHp) || 560,
+      state: 'idle', stateTimer: Number(c.matsuruIdleDuration) || 1.2, facingX: -1, attackText: '', attackTextTimer: 0, windX: 0, windVx: 0, windReturning: false,
+      passiveActive: true, lastHitTimer: 0, empowered: false, multiHitTimer: 0, counterTell: false, needles: [], counterVx: 0, contactDamageTimer: 0,
+    },
+    timer: 0,
+    isComplete: false,
+  };
+}
+
 function getRedLightCharDelay(char) {
   const c = CONFIG.redLight || {};
   const normalMin = Number(c.dialogueNormalMinDelay) || 0.03;
@@ -1201,6 +1258,7 @@ function startBossBattleMode(bossType) {
 
   if (bossType === 'tododon') { startDuelBattle(); return; }
   if (bossType === 'red_light') { startRedLightEncounter(); return; }
+  if (bossType === 'matsuru') { startMatsuruEncounter(); return; }
   console.warn('[debug] unknown boss battle type', bossType);
 }
 
@@ -2649,6 +2707,7 @@ function updateEnding(dt) {
 
 function updateDuel(dt) {
   if (gameState?.duel?.bossType === 'red_light') return updateRedLightBossBattle(dt);
+  if (gameState?.duel?.bossType === 'matsuru') return updateMatsuruBossBattle(dt);
   const duel = gameState?.duel; const p = gameState?.player; const c = CONFIG.duel || {};
   if (!duel || !p) return;
   updatePlayerMovement(dt);
@@ -2708,6 +2767,26 @@ function updateDuel(dt) {
   if ((t.hp || 0) <= 0) completeBossEncounter('tododon');
 }
 
+function updateMatsuruBossBattle(dt) {
+  const duel = gameState?.duel; const p = gameState?.player; const c = CONFIG.duel || {}; const b = duel?.boss;
+  if (!duel || !p || !b) return;
+  updatePlayerMovement(dt); updatePlayerAttack(dt); updateProjectiles(dt); updateParticles(dt);
+  p.x = clamp(p.x, p.radius, CONFIG.canvas.width - p.radius); p.y = clamp(p.y, p.radius, CONFIG.canvas.height - p.radius);
+  b.stateTimer = Math.max(0, (b.stateTimer || 0) - dt); b.attackTextTimer = Math.max(0, (b.attackTextTimer || 0) - dt); if (b.attackTextTimer <= 0) b.attackText = '';
+  b.lastHitTimer += dt; b.empowered = b.lastHitTimer >= (c.matsuruPassiveEmpowerDelay || 4.5); b.passiveActive = b.state === 'recovery' ? false : true;
+  if (b.state === 'idle' && b.stateTimer <= 0) { b.state = Math.random() < 0.75 ? 'prepareMatsukaze' : 'pineNeedles'; b.stateTimer = b.state === 'prepareMatsukaze' ? (c.matsuruPrepareDuration || 0.8) : 0.1; b.attackText = b.state === 'prepareMatsukaze' ? '松風の構え…' : '松葉散らし'; b.attackTextTimer = 0.8; }
+  else if (b.state === 'prepareMatsukaze' && b.stateTimer <= 0) { b.state = 'matsukaze'; b.stateTimer = c.matsuruWindDuration || 1.5; b.windX = b.x; b.windVx = -1; b.multiHitTimer = 0; }
+  else if (b.state === 'matsukaze' && b.stateTimer <= 0) { b.state = 'matsukazeReturn'; b.stateTimer = c.matsuruReturnDuration || 1.0; b.windVx = 1; b.windReturning = true; }
+  else if (b.state === 'matsukazeReturn' && b.stateTimer <= 0) { b.state = 'recovery'; b.stateTimer = c.matsuruRecoveryDuration || 2.0; b.attackText = '松鶴延年が緩んだ！'; b.attackTextTimer = 1.0; }
+  else if (b.state === 'recovery' && b.stateTimer <= 0) { b.state = 'idle'; b.stateTimer = c.matsuruIdleDuration || 1.2; }
+  else if (b.state === 'pineNeedles') { if (!Array.isArray(b.needles) || b.needles.length === 0) { const n = Math.max(3, c.matsuruNeedleFanCount || 5); for (let i = 0; i < n; i += 1) { const t = n === 1 ? 0.5 : i / (n - 1); const a = -0.4 + 0.8 * t; b.needles.push({ x: b.x - b.radius * 0.6, y: b.y, vx: -Math.cos(a) * (c.matsuruNeedleSpeed || 160), vy: Math.sin(a) * (c.matsuruNeedleSpeed || 160), radius: 7, life: c.matsuruNeedleLife || 3.6, damage: c.matsuruNeedleDamage || 12 }); } } b.state = 'idle'; b.stateTimer = c.matsuruIdleDuration || 1.2; }
+  if (b.state === 'matsukaze' || b.state === 'matsukazeReturn') { b.windX += b.windVx * (CONFIG.canvas.width * dt * 0.7); b.multiHitTimer = Math.max(0, (b.multiHitTimer || 0) - dt); const windHit = Math.abs(p.x - b.windX) <= 160 && Math.abs(p.y - b.y) <= 120; if (windHit) { p.x = clamp(p.x + b.windVx * (c.matsuruWindPush || 280) * dt, p.radius, CONFIG.canvas.width - p.radius); if (b.multiHitTimer <= 0) { p.hp -= (c.matsuruWindDamage || 8) * (b.empowered ? (c.matsuruPassiveEmpowerDamageScale || 1.35) : 1); b.multiHitTimer = c.matsuruWindHitCooldown || 0.25; } } }
+  b.needles = (b.needles || []).filter(n => n && n.life > 0 && n.x > -80 && n.x < CONFIG.canvas.width + 80 && n.y > -80 && n.y < CONFIG.canvas.height + 80);
+  b.needles.forEach(n => { n.x += n.vx * dt; n.y += n.vy * dt; n.life -= dt; if (distance(n, p) <= n.radius + p.radius && gameState.damageTimer <= 0) { p.hp -= n.damage; gameState.damageTimer = CONFIG.enemy.damageCooldown; n.life = 0; } });
+  if ((p.hp || 0) <= 0) return showGameOver();
+  if ((b.hp || 0) <= 0) { b.state = 'defeated'; completeBossEncounter('matsuru'); }
+}
+
 function normalizeBossRadius(boss) {
   const fallback = Number(CONFIG.redLight?.bodyRadius) || Number(CONFIG.duel?.tododonRadius) || 60;
   const radius = Number.isFinite(boss?.radius) && boss.radius > 0 ? boss.radius : fallback;
@@ -2747,6 +2826,11 @@ function getActiveBossTarget() {
       ref: boss,
     };
   }
+  if (duel.bossType === 'matsuru') {
+    const boss = duel.boss;
+    if (!boss) return null;
+    return { type: 'boss', bossType: 'matsuru', x: Number(boss.x) || 0, y: Number(boss.y) || 0, radius: Number(boss.radius) || 84, hp: Number(boss.hp) || 0, maxHp: Number(boss.maxHp) || 1, ref: boss };
+  }
   return null;
 }
 
@@ -2767,6 +2851,29 @@ function damageActiveBoss(amount, source = 'unknown') {
     mult = vulnerable ? vulnerableMult : gazeMult;
   }
   if (target.bossType === 'tododon' && (boss.state === 'dead' || duel?.isComplete || duel?.active !== true)) return false;
+  if (target.bossType === 'matsuru') {
+    const passiveReduction = Number(CONFIG.duel?.matsuruPassiveReduction) || 0.15;
+    const p = gameState?.player;
+    const isPassive = boss.passiveActive !== false;
+    if (isPassive && source === 'projectile') {
+      const p = gameState?.player;
+      if (p) {
+        const dirX = (p.x || 0) - (boss.x || 0);
+        const dirY = (p.y || 0) - (boss.y || 0);
+        const d = Math.hypot(dirX, dirY) || 1;
+        gameState.manualShots.push({ x: boss.x - dirX / d * (boss.radius || 84), y: boss.y - dirY / d * 12, vx: -(dirX / d) * (CONFIG.duel?.matsuruNeedleSpeed || 160), vy: -(dirY / d) * (CONFIG.duel?.matsuruNeedleSpeed || 160), radius: 6, damage: CONFIG.duel?.matsuruNeedleDamage || 12, life: 1.8 });
+      }
+    }
+    if (isPassive && source === 'manual') {
+      boss.state = 'counter';
+      boss.stateTimer = Number(CONFIG.duel?.matsuruCounterDuration) || 0.45;
+      const dx = (p?.x || 0) - (boss.x || 0); const dy = (p?.y || 0) - (boss.y || 0); const d = Math.hypot(dx, dy) || 1;
+      boss.x += (dx / d) * Math.min(Number(CONFIG.duel?.matsuruCounterRange) || 170, d);
+      if (distance(boss, p) <= (boss.radius || 84) + (p.radius || 18) + 20) p.hp -= Number(CONFIG.duel?.matsuruCounterDamage) || 22;
+    }
+    mult *= isPassive ? passiveReduction : 1;
+    boss.lastHitTimer = 0;
+  }
   const finalDamage = Math.max(0, normalizedAmount * Math.max(0, mult));
   if (!Number.isFinite(finalDamage) || finalDamage <= 0) return false;
   const maxHp = Number.isFinite(boss.maxHp) ? boss.maxHp : Math.max(1, Number(boss.hp) || 1);
@@ -3263,6 +3370,7 @@ function drawAirBullets() {
 }
 function drawDuelTododon() {
   if (gameState?.duel?.bossType === 'red_light') return renderRedLightBossBattle();
+  if (gameState?.duel?.bossType === 'matsuru') return renderMatsuruBossBattle();
   if (gameState.phase !== 'duel') return;
   const t = gameState?.duel?.tododon; if (!t) return;
   const c = CONFIG.duel || {};
@@ -3280,6 +3388,23 @@ function drawDuelTododon() {
   }
   drawEntityWithFallback(t, tododonImage, '#4f6f8e');
   if (t.cannon?.warning || t.cannon?.active) { ctx.save(); ctx.fillStyle = t.cannon.warning ? 'rgba(255,190,120,0.22)' : 'rgba(255,110,80,0.45)'; ctx.fillRect(0, (t.cannon.y || 0) - (c.cannonWidth || 86) / 2, CONFIG.canvas.width, c.cannonWidth || 86); ctx.restore(); }
+}
+function safeDrawImage(img, x, y, w, h) { if (!img || !img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) return false; ctx.drawImage(img, x, y, w, h); return true; }
+function renderMatsuruBossBattle() {
+  const b = gameState?.duel?.boss; if (!b) return;
+  const img = getBossImage('matsuru');
+  drawEntityShadow(b, 'rgba(0,0,0,0.45)');
+  ctx.save();
+  const stretch = b.state === 'matsukaze' || b.state === 'matsukazeReturn' ? 1.15 : 1;
+  const s = b.radius * 2.3;
+  if (!img || !safeDrawImage(img.img, b.x - (s * stretch) * 0.5, b.y - s * 0.5, s * stretch, s)) {
+    ctx.fillStyle = b.passiveActive ? '#2b4a35' : '#88b395';
+    ctx.beginPath(); ctx.ellipse(b.x, b.y, b.radius * stretch, b.radius * 0.75, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#d9f5df'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(b.x - b.radius * 0.9, b.y); ctx.lineTo(b.x + b.radius * 0.9, b.y); ctx.stroke();
+  }
+  if (b.state === 'matsukaze' || b.state === 'matsukazeReturn') { ctx.fillStyle = 'rgba(195,235,255,0.25)'; ctx.fillRect(b.windX - 165, b.y - 110, 330, 220); }
+  (b.needles || []).forEach(n => { ctx.fillStyle = 'rgba(215,255,205,0.95)'; ctx.fillRect(n.x - 6, n.y - 2, 12, 4); });
+  ctx.restore();
 }
 function renderRedLightBossBattle() {
   const duel = gameState?.duel; const boss = duel?.boss; const c = CONFIG.redLight || {};
@@ -3362,6 +3487,12 @@ function drawDuelBossHpBar() {
     ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x, y, w, h); ctx.fillStyle = '#ff7272'; ctx.fillRect(x, y, w * pct, h); ctx.strokeStyle = '#ffd5d5'; ctx.strokeRect(x, y, w, h); ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('Red Light Biolume', x, y - 6); return;
   }
   const t = gameState?.duel?.tododon; if (!t || gameState.phase !== 'duel') return;
+  if (gameState?.duel?.bossType === 'matsuru') {
+    const b = gameState?.duel?.boss; if (!b) return;
+    const w = 520; const h = 18; const x = (CONFIG.canvas.width - w) / 2; const y = 18; const pct = clamp((b.hp || 0) / (b.maxHp || 1), 0, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x, y, w, h); ctx.fillStyle = '#9fe7b7'; ctx.fillRect(x, y, w * pct, h); ctx.strokeStyle = '#e6ffe8'; ctx.strokeRect(x, y, w, h); ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('Matsuru / マツル', x, y - 6);
+    return;
+  }
   const w = 520; const h = 18; const x = (CONFIG.canvas.width - w) / 2; const y = 18; const pct = clamp((t.hp||0)/(t.maxHp||1),0,1);
   ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x,y,w,h); ctx.fillStyle = '#8ed0ff'; ctx.fillRect(x,y,w*pct,h); ctx.strokeStyle='#dff4ff'; ctx.strokeRect(x,y,w,h); ctx.fillStyle='#fff'; ctx.font='bold 16px sans-serif'; ctx.fillText('Tododon', x, y-6);
 }
