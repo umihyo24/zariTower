@@ -489,6 +489,15 @@ const CONFIG = {
     matsubaAntiWallBiasStrength: 0.22,
     matsubaLeafSpeed: 122,
     matsuruProjectileMaxCount: 120,
+    matsuruContactDamage: 12,
+    matsuruContactHitCooldown: 0.45,
+    matsuruContactKnockback: 180,
+    matsuruDebugInvincibleStillKnockback: true,
+    playerCardDamageToMatsuru: 18,
+    matsuruGuardedDamageMultiplier: 0.35,
+    matsuruRecoveryDamageMultiplier: 1.8,
+    matsuruHitFlashDuration: 0.22,
+    matsuruHitKnockback: 28,
     matsuruCounterDamage: 22,
     matsuruCounterRange: 170,
     matsuruCounterSpeed: 560,
@@ -698,6 +707,17 @@ const EVENT_DEFINITIONS = {
     ],
     nextFlow: 'haginoinoshishi_return_hub',
   },
+  matsuru_defeat: {
+    speaker: 'マツル',
+    text: '……松風、止ミヌカ',
+    script: [
+      { speaker: 'マツル', text: '……松風、止ミヌカ' },
+      { speaker: 'マツル', text: '待ツコトヲ、覚エタナ' },
+      { speaker: 'System', text: 'マツルの技を取得した' },
+      { speaker: 'System', text: '中央庭園へ戻ります' },
+    ],
+    nextFlow: 'matsuru_return_hub',
+  },
 };
 
 const canvas = document.getElementById('gameCanvas');
@@ -897,6 +917,8 @@ function resetState(nextPhase = gameState.phase || 'start') {
       bestSurvivalTime: Math.max(0, Number(gameState?.meta?.bestSurvivalTime || 0)),
       unlockedFlags: {
         tododonShop: Boolean(gameState?.meta?.unlockedFlags?.tododonShop),
+        matsuruTechnique: Boolean(gameState?.meta?.unlockedFlags?.matsuruTechnique),
+        haginoinoshishiTechnique: Boolean(gameState?.meta?.unlockedFlags?.haginoinoshishiTechnique),
       },
     },
   });
@@ -1169,6 +1191,11 @@ function closeEventToFlow(nextFlow = 'clear') {
     returnToHubFromBoss();
     return;
   }
+  if (nextFlow === 'matsuru_return_hub') {
+    gameState.event = null;
+    returnToHubFromBoss();
+    return;
+  }
   closeTododonEventToFlow(nextFlow);
 }
 
@@ -1343,6 +1370,8 @@ function startMatsuruEncounter() {
       matsukazePulseDelayTimer: 0,
       nextTurretPulseStartIndex: 0,
       matsubaPulseFiringTurrets: 0,
+      hitFlashTimer: 0,
+      defeatHandled: false,
     },
     timer: 0,
     isComplete: false,
@@ -2715,7 +2744,10 @@ function updatePlayerProjectiles(dt) {
     if (isPointInsideObstacle(proj.x, proj.y, 0)) return;
     if (bossTarget && distance(proj, bossTarget) <= (Number(proj.radius) || 0) + (Number(bossTarget.radius) || 0)) {
       const bossMul = Number(CONFIG.player?.playerCardBossDamageMultiplier) || 1;
-      const dealt = Math.max(0, (Number(proj.damage) || 0) * bossMul);
+      const baseCard = Number(CONFIG.duel?.playerCardDamageToMatsuru) || Number(proj.damage) || 0;
+      const dealt = bossTarget.bossType === 'matsuru'
+        ? Math.max(0, baseCard)
+        : Math.max(0, (Number(proj.damage) || 0) * bossMul);
       damageActiveBoss(dealt, 'projectile');
       bossTarget.weakPointFlashTimer = Math.max(Number(CONFIG.player?.playerCardHitFlashDuration) || 0, Number(bossTarget.weakPointFlashTimer) || 0);
       proj.active = false;
@@ -3443,6 +3475,7 @@ function updateMatsuruBossBattle(dt) {
   b.glidePhase = (b.glidePhase || 0) + scaledDt * 0.7;
   b.bodySway = Math.sin((b.motionTime || 0) * 1.8) * 0.06;
   b.lastHitTimer += dt; b.empowered = b.lastHitTimer >= (c.matsuruPassiveEmpowerDelay || 4.5); b.passiveActive = b.state === 'recovery' ? false : true;
+  b.hitFlashTimer = Math.max(0, (Number(b.hitFlashTimer) || 0) - dt);
   b.facingX = p.x < b.x ? -1 : 1;
   if (b.state === 'openingMatsuba') {
     if (!b.needlesSpawned) {
@@ -3603,8 +3636,26 @@ function updateMatsuruBossBattle(dt) {
     const startIndex = Math.max(0, Math.floor(Number(b.nextTurretPulseStartIndex) || 0)) % Math.max(1, sortedTurrets.length);
     const waveTurrets = [];
     for (let i = 0; i < Math.min(maxTurretsPerWave, sortedTurrets.length); i += 1) waveTurrets.push(sortedTurrets[(startIndex + i) % sortedTurrets.length]);
+    const maxProjectiles = Math.max(12, Math.floor(Number(c.matsuruProjectileMaxCount) || 120));
+    let movingNow = b.needles.filter(n => n && n.type === 'moving').length;
+    if (movingNow >= maxProjectiles) {
+      const cleanable = b.needles.filter(n => n && n.type === 'moving').sort((a, z) => (a.life || 0) - (z.life || 0));
+      while (movingNow >= maxProjectiles && cleanable.length) {
+        const dead = cleanable.shift();
+        if (!dead) break;
+        dead.type = 'decaying';
+        dead.decayTimer = 0.05;
+        dead.life = Math.min(dead.life || 0, 0.05);
+        movingNow -= 1;
+      }
+    }
     let firedProjectiles = 0;
-    waveTurrets.forEach((turret) => { fireFromTurret(turret); firedProjectiles += 2; });
+    waveTurrets.forEach((turret) => {
+      if (movingNow + 2 > maxProjectiles) return;
+      fireFromTurret(turret);
+      movingNow += 2;
+      firedProjectiles += 2;
+    });
     b.matsubaPulseFiringTurrets = waveTurrets.length;
     b.nextTurretPulseStartIndex = startIndex + waveTurrets.length;
     b.lastMatsubaPulseCount = firedProjectiles;
@@ -3618,8 +3669,36 @@ function updateMatsuruBossBattle(dt) {
   const maxProjectiles = Math.max(12, Math.floor(Number(c.matsuruProjectileMaxCount) || 120));
   const movingProjectiles = b.needles.filter(n => n && n.type === 'moving');
   if (movingProjectiles.length > maxProjectiles) movingProjectiles.sort((a, z) => (z.age || 0) - (a.age || 0)).slice(maxProjectiles).forEach(n => { n.type = 'decaying'; n.decayTimer = Number(c.matsuruTurretDecayDuration) || 6.5; });
+  const contactRadius = Math.max(1, Number(b.radius) || Number(c.matsuruRadius) || 84) + Math.max(1, Number(p.radius) || 18);
+  b.contactDamageTimer = Math.max(0, Number(b.contactDamageTimer) - dt);
+  if (b.state !== 'defeated' && distance(b, p) <= contactRadius && b.contactDamageTimer <= 0) {
+    const dx = (Number(p.x) || 0) - (Number(b.x) || 0);
+    const dy = (Number(p.y) || 0) - (Number(b.y) || 0);
+    const d = Math.hypot(dx, dy) || 1;
+    const kb = Math.max(0, Number(c.matsuruContactKnockback) || 0);
+    const knockX = (dx / d) * kb;
+    const knockY = (dy / d) * kb;
+    p.knockbackX = (Number(p.knockbackX) || 0) + knockX;
+    p.knockbackY = (Number(p.knockbackY) || 0) + knockY;
+    p.knockbackTimer = Math.max(Number(p.knockbackTimer) || 0, 0.08);
+    if (!isInvincible) p.hp = Math.max(0, (Number(p.hp) || 0) - Math.max(0, Number(c.matsuruContactDamage) || 0));
+    else if (!Boolean(c.matsuruDebugInvincibleStillKnockback)) { p.knockbackX = 0; p.knockbackY = 0; }
+    b.contactDamageTimer = Math.max(0.05, Number(c.matsuruContactHitCooldown) || 0.45);
+  }
+  p.x = clamp(Number(p.x) || 0, p.radius, CONFIG.canvas.width - p.radius);
+  p.y = clamp(Number(p.y) || 0, p.radius, CONFIG.canvas.height - p.radius);
   if ((p.hp || 0) <= 0) return showGameOver();
-  if ((b.hp || 0) <= 0) { b.state = 'defeated'; completeBossEncounter('matsuru'); }
+  if ((b.hp || 0) <= 0) {
+    b.hp = 0;
+    if (!b.defeatHandled) {
+      b.defeatHandled = true;
+      b.state = 'defeated';
+      b.needles = [];
+      b.multiHitTimer = 0;
+      b.contactDamageTimer = 999;
+      completeBossEncounter('matsuru');
+    }
+  }
 }
 
 function normalizeBossRadius(boss) {
@@ -3734,7 +3813,10 @@ function damageActiveBoss(amount, source = 'unknown') {
         boss.attackTextTimer = 0.5;
       }
     }
-    mult *= isPassive ? passiveReduction : 1;
+    const guardedMult = Math.max(0.05, Number(CONFIG.duel?.matsuruGuardedDamageMultiplier) || 0.35);
+    const recoveryMult = Math.max(1, Number(CONFIG.duel?.matsuruRecoveryDamageMultiplier) || 1.8);
+    if (boss.state === 'recovery') mult *= recoveryMult;
+    else if (isPassive) mult *= guardedMult * passiveReduction;
     boss.lastHitTimer = 0;
   }
   const finalDamage = Math.max(0, normalizedAmount * Math.max(0, mult));
@@ -3742,7 +3824,17 @@ function damageActiveBoss(amount, source = 'unknown') {
   const maxHp = Number.isFinite(boss.maxHp) ? boss.maxHp : Math.max(1, Number(boss.hp) || 1);
   boss.hp = clamp((Number(boss.hp) || 0) - finalDamage, 0, maxHp);
   spawnHitParticles(Number(boss.x) || 0, Number(boss.y) || 0);
-  boss.weakPointFlashTimer = Math.max(Number(boss.weakPointFlashTimer) || 0, 0.18);
+  boss.weakPointFlashTimer = Math.max(Number(boss.weakPointFlashTimer) || 0, Number(CONFIG.duel?.matsuruHitFlashDuration) || 0.22);
+  if (target.bossType === 'matsuru') {
+    boss.hitFlashTimer = Math.max(Number(boss.hitFlashTimer) || 0, Number(CONFIG.duel?.matsuruHitFlashDuration) || 0.22);
+    const src = gameState?.player;
+    const kx = (Number(boss.x) || 0) - (Number(src?.x) || 0);
+    const ky = (Number(boss.y) || 0) - (Number(src?.y) || 0);
+    const kd = Math.hypot(kx, ky) || 1;
+    const km = Math.max(0, Number(CONFIG.duel?.matsuruHitKnockback) || 0);
+    boss.x = clamp((Number(boss.x) || 0) + (kx / kd) * km * 0.03, boss.radius, CONFIG.canvas.width - boss.radius);
+    boss.y = clamp((Number(boss.y) || 0) + (ky / kd) * km * 0.03, boss.radius, CONFIG.canvas.height - boss.radius);
+  }
   console.info('[boss] hit', { bossType: target.bossType, damage: finalDamage, hp: boss.hp, source });
   if (boss.hp <= 0) completeBossEncounter(target.bossType);
   return true;
@@ -3755,6 +3847,7 @@ function isActiveBossDamageable() {
   if (!target || !target.ref) return false;
   if (target.bossType === 'red_light') return target.ref.phase === 'blind';
   if (target.bossType === 'tododon') return target.ref.state !== 'dead';
+  if (target.bossType === 'matsuru') return target.ref.state !== 'defeated';
   return true;
 }
 
@@ -3781,6 +3874,18 @@ function completeBossEncounter(bossType) {
     if (!gameState.meta.unlockedFlags || typeof gameState.meta.unlockedFlags !== 'object') gameState.meta.unlockedFlags = {};
     gameState.meta.unlockedFlags.haginoinoshishiTechnique = true;
     startScriptedEvent('haginoinoshishi_defeat', 'haginoinoshishi_return_hub');
+    return;
+  }
+  if (bossType === 'matsuru') {
+    const boss = duel?.boss || {};
+    boss.state = 'defeated';
+    boss.stateTimer = 0;
+    boss.needles = [];
+    boss.windVx = 0;
+    boss.multiHitTimer = 0;
+    if (!gameState.meta.unlockedFlags || typeof gameState.meta.unlockedFlags !== 'object') gameState.meta.unlockedFlags = {};
+    gameState.meta.unlockedFlags.matsuruTechnique = true;
+    startScriptedEvent('matsuru_defeat', 'matsuru_return_hub');
     return;
   }
   showClear();
@@ -4354,6 +4459,14 @@ function renderMatsuruBossBattle() {
     ctx.beginPath(); ctx.ellipse(renderX, renderY, b.radius * stretch, b.radius * 0.75, b.bodySway || 0, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#d9f5df'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(renderX - b.radius * 0.9, renderY); ctx.lineTo(renderX + b.radius * 0.9, renderY); ctx.stroke();
   }
+  if ((b.hitFlashTimer || 0) > 0) {
+    const flash = clamp((Number(b.hitFlashTimer) || 0) / Math.max(0.05, Number(CONFIG.duel?.matsuruHitFlashDuration) || 0.22), 0, 1);
+    ctx.strokeStyle = `rgba(255,255,235,${flash})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(renderX, renderY, Number(b.radius) || 84, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   if (b.state === 'matsukaze' || b.state === 'matsukazeReturn') { const windRect = getMovingMatsukazeHitbox(b); ctx.fillStyle = 'rgba(195,235,255,0.25)'; ctx.fillRect(windRect.x, windRect.y, windRect.width, windRect.height); }
   if (b.state === 'counterTell') { ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(b.x + (b.facingX || -1) * 26, b.y - 16, 22, 3); }
   if (b.state === 'counterThrust') { ctx.fillStyle = 'rgba(240,255,245,0.35)'; ctx.fillRect(b.x - (b.facingX || -1) * 46, b.y - 10, 58, 20); }
@@ -4606,6 +4719,8 @@ function drawHud() {
     ctx.fillText(`Stuck Leaves: ${stuckLeaves}`, 300, 590);
     ctx.fillText(`Projectiles: ${leaves.filter(n => n && n.type === 'moving').length}`, 300, 606);
     ctx.fillText(`Speed Mult: ${speedMul.toFixed(2)}x`, 300, 622);
+    ctx.fillText(`Contact CD: ${(Number(b?.contactDamageTimer) || 0).toFixed(2)}`, 300, 638);
+    ctx.fillText(`Reward Unlocked: ${Boolean(gameState?.meta?.unlockedFlags?.matsuruTechnique)}`, 300, 654);
     if (b && (b.state === 'matsukaze' || b.state === 'matsukazeReturn')) { ctx.strokeStyle = 'rgba(120,220,255,0.95)'; ctx.lineWidth = 1.5; ctx.strokeRect(windRect.x, windRect.y, windRect.width, windRect.height); }
   }
   if (showDebug && gameState?.duel?.bossType === 'haginoinoshishi') {
