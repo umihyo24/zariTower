@@ -325,6 +325,26 @@ const CONFIG = {
     lineOfSightGrace: 0.08,
   },
 
+  haginoinoshishi: {
+    arena: { arenaWidth: 960, arenaHeight: 540, playerStartX: 180, playerStartY: 270, bossStartX: 760, bossStartY: 260 },
+    boss: {
+      radius: 76, maxHpForBarOrDisplay: 100, idleDuration: 1.2, prepareDuration: 0.95, chargeDuration: 2.1, recoveryDuration: 1.0,
+      exhaustedDuration: 2.0, finalExhaustedDuration: 8.0, walkSpeed: 70, chargeSpeed: 290, chargeTurnRate: 2.2, ruinedGroundChargeTurnRateMultiplier: 0.54,
+      contactDamage: 14, chargeDamage: 24, damageCooldown: 0.34, playerKnockback: 140, fatigueRequiredForFinal: 100, fatigueFromChargeMiss: 18,
+      fatigueFromLongCharge: 10, fatigueFromSlidingOnRuinedGround: 14, rageFatigueThreshold: 60, rageSpeedMultiplier: 1.12, ragePrepareMultiplier: 0.8,
+    },
+    ruinedGround: {
+      trailSpawnInterval: 0.18, trailRadius: 42, trailLifetime: 16, maxTrailPatches: 95, freshSlowMultiplier: 0.84, deepSlowMultiplier: 0.58,
+      turnPenaltyMultiplier: 0.6, deepeningPerBoarPass: 0.2, recoveryPerSecond: 0.06, maxRuinLevel: 1, playerCleanGroundSpeedMultiplier: 1,
+      boarSlideMultiplierOnRuinedGround: 1.22,
+    },
+    visuals: {
+      dustParticleCount: 4, stompParticleCount: 6, trailColorFresh: 'rgba(111,82,61,0.22)', trailColorDeep: 'rgba(66,45,32,0.45)',
+      bossColorFallback: '#3e342f', impactShakeDuration: 0.2, impactShakeStrength: 5,
+    },
+    debug: { debugInvincibleDefault: false, debugFastBossMultiplier: 1 },
+  },
+
   duel: {
     arenaWidth: 960,
     arenaHeight: 540,
@@ -642,11 +662,11 @@ const BOSS_REGISTRY = {
   },
   haginoinoshishi: {
     id: 'haginoinoshishi',
-    label: 'ハギノシシ',
-    status: 'concept',
-    description: '設計書のみ。突進を岩へ誘導する縄張り戦。',
+    label: 'VS Haginoinoshishi / ハギノシシ',
+    status: 'playable',
+    description: '荒れ地と突進を制御する縄張り戦',
     imageKey: 'boss_haginoshishi',
-    start: null,
+    start: () => startHaginoinoshishiEncounter(),
   },
   gachirinbou: {
     id: 'gachirinbou',
@@ -1027,6 +1047,18 @@ function startDuelBattle() {
     },
     waveProjectiles: [],
     isComplete: false,
+  };
+}
+
+
+function startHaginoinoshishiEncounter() {
+  const cfg = CONFIG.haginoinoshishi || {}; const a = cfg.arena || {}; const bcfg = cfg.boss || {};
+  gameState.phase = 'duel'; gameState.isPaused = false; gameState.isGameOver = false; gameState.projectiles = []; gameState.manualShots = []; gameState.particles = [];
+  const p = gameState.player; if (!p) return;
+  p.x = clamp(Number(a.playerStartX) || 180, p.radius, (Number(a.arenaWidth) || CONFIG.canvas.width) - p.radius); p.y = clamp(Number(a.playerStartY) || 270, p.radius, (Number(a.arenaHeight) || CONFIG.canvas.height) - p.radius);
+  gameState.duel = { active: true, isComplete: false, timer: 0, bossType: 'haginoinoshishi', ruinedGround: [], duelParticles: [], cameraShakeTimer: 0, cameraShakeStrength: 0,
+    boss: { id:'duel_haginoinoshishi', x:Number(a.bossStartX)||760, y:Number(a.bossStartY)||260, radius:Number(bcfg.radius)||76, hp:Number(bcfg.maxHpForBarOrDisplay)||100, maxHp:Number(bcfg.maxHpForBarOrDisplay)||100,
+      state:'idle', stateTimer:Number(bcfg.idleDuration)||1.2, facing:Math.PI, chargeDirX:-1, chargeDirY:0, damageTimer:0, fatigue:0, fatigueBonusWindow:0, chargeMissTimer:0, chargeTrailTimer:0, slideTime:0, resistantFlashTimer:0, weakPointFlashTimer:0 }
   };
 }
 
@@ -2940,6 +2972,7 @@ function updateEnding(dt) {
 function updateDuel(dt) {
   if (gameState?.duel?.bossType === 'red_light') return updateRedLightBossBattle(dt);
   if (gameState?.duel?.bossType === 'matsuru') return updateMatsuruBossBattle(dt);
+  if (gameState?.duel?.bossType === 'haginoinoshishi') return updateHaginoinoshishiBossBattle(dt);
   const duel = gameState?.duel; const p = gameState?.player; const c = CONFIG.duel || {};
   if (!duel || !p) return;
   updatePlayerMovement(dt);
@@ -2998,6 +3031,20 @@ function updateDuel(dt) {
   if ((p.hp || 0) <= 0) { showGameOver(); return; }
   if ((t.hp || 0) <= 0) completeBossEncounter('tododon');
 }
+
+
+function updateHaginoinoshishiBossBattle(dt) { const duel=gameState?.duel; const p=gameState?.player; const cfg=CONFIG.haginoinoshishi||{}; const a=cfg.arena||{}; const c=cfg.boss||{}; const rg=cfg.ruinedGround||{}; const v=cfg.visuals||{}; const b=duel?.boss; if(!duel||!p||!b)return; const inv=Boolean(gameState?.debug?.enabled)&&Boolean(gameState?.debug?.playerInvincible); updatePlayerMovement(dt); updatePlayerAttack(dt); updateProjectiles(dt); updateParticles(dt); duel.timer=(duel.timer||0)+dt; b.stateTimer=Math.max(0,(b.stateTimer||0)-dt); b.damageTimer=Math.max(0,(b.damageTimer||0)-dt); b.resistantFlashTimer=Math.max(0,(b.resistantFlashTimer||0)-dt); b.weakPointFlashTimer=Math.max(0,(b.weakPointFlashTimer||0)-dt); const px=Number(p.x)||0,py=Number(p.y)||0; const dx=px-(b.x||0),dy=py-(b.y||0); const dist=Math.hypot(dx,dy)||1; const rage=(Number(b.fatigue)||0)>= (Number(c.rageFatigueThreshold)||60);
+ const patches=Array.isArray(duel.ruinedGround)?duel.ruinedGround:[]; duel.ruinedGround=patches; const sample=(x,y)=>{let max=0;for(const t of patches){if(!t)continue;const dd=Math.hypot((x||0)-(t.x||0),(y||0)-(t.y||0)); if(dd<=(t.radius||0)) max=Math.max(max, Number(t.ruinLevel)||0);} return clamp(max,0,Number(rg.maxRuinLevel)||1);};
+ const addTrail=(x,y,r,m=1)=>{let found=null; for(const t of patches){if(Math.hypot((x||0)-(t.x||0),(y||0)-(t.y||0))<=Math.max((t.radius||0),r)*0.65){found=t;break;}} if(found){found.ruinLevel=clamp((found.ruinLevel||0)+(Number(rg.deepeningPerBoarPass)||0.2)*m,0,Number(rg.maxRuinLevel)||1); found.life=Math.max(found.life||0,Number(rg.trailLifetime)||16); found.age=0;} else {patches.push({x,y,radius:r,ruinLevel:clamp(0.28*m,0,Number(rg.maxRuinLevel)||1),life:Number(rg.trailLifetime)||16,age:0}); if(patches.length>(Number(rg.maxTrailPatches)||95)) patches.shift(); }};
+ const ruin=sample(p.x,p.y); p.contactSlowMultiplier=clamp((Number(rg.playerCleanGroundSpeedMultiplier)||1)*(1-ruin*(1-(Number(rg.deepSlowMultiplier)||0.58))),0.45,1);
+ if(b.state==='idle'){b.facing=Math.atan2(dy,dx); b.x += Math.cos(b.facing)*(Number(c.walkSpeed)||70)*dt; b.y += Math.sin(b.facing)*(Number(c.walkSpeed)||70)*dt; addTrail(b.x,b.y,(Number(rg.trailRadius)||42)*0.55,0.5); if(b.stateTimer<=0){b.state='prepareCharge'; b.stateTimer=(Number(c.prepareDuration)||1)*(rage?(Number(c.ragePrepareMultiplier)||0.8):1);} }
+ else if(b.state==='prepareCharge'){addTrail(b.x+rand(-8,8),b.y+rand(-8,8),(Number(rg.trailRadius)||42)*0.45,0.45); if(b.stateTimer<=0){b.state='charging'; b.stateTimer=Number(c.chargeDuration)||2.1; b.chargeDirX=dx/dist; b.chargeDirY=dy/dist; b.chargeMissTimer=0; b.slideTime=0;}}
+ else if(b.state==='charging'){const localR=sample(b.x,b.y); let turn=(Number(c.chargeTurnRate)||2.2)*(1-localR*(1-(Number(c.ruinedGroundChargeTurnRateMultiplier)||0.54))); const targetA=Math.atan2(dy,dx), currA=Math.atan2(b.chargeDirY||0,b.chargeDirX||1); let da=((targetA-currA+Math.PI*3)%(Math.PI*2))-Math.PI; da=clamp(da,-turn*dt,turn*dt); const na=currA+da; b.chargeDirX=Math.cos(na); b.chargeDirY=Math.sin(na); const speed=(Number(c.chargeSpeed)||290)*(rage?(Number(c.rageSpeedMultiplier)||1.12):1)*(1+localR*((Number(rg.boarSlideMultiplierOnRuinedGround)||1.22)-1)); b.x += b.chargeDirX*speed*dt; b.y += b.chargeDirY*speed*dt; b.chargeTrailTimer=(b.chargeTrailTimer||0)-dt; if(b.chargeTrailTimer<=0){b.chargeTrailTimer=Number(rg.trailSpawnInterval)||0.18; addTrail(b.x,b.y,Number(rg.trailRadius)||42,1);} b.chargeMissTimer += dt; if(localR>0.5) b.slideTime += dt; if(b.stateTimer<=0||b.x<=b.radius||b.x>=(Number(a.arenaWidth)||960)-b.radius||b.y<=b.radius||b.y>=(Number(a.arenaHeight)||540)-b.radius){b.fatigue=clamp((b.fatigue||0)+(Number(c.fatigueFromLongCharge)||10)+(b.chargeMissTimer>1.25?(Number(c.fatigueFromChargeMiss)||18):0)+(b.slideTime>0.45?(Number(c.fatigueFromSlidingOnRuinedGround)||14):0),0,Number(c.fatigueRequiredForFinal)||100); b.state=(b.fatigue>=(Number(c.fatigueRequiredForFinal)||100))?'finalExhausted':'exhausted'; b.stateTimer=b.state==='finalExhausted'?(Number(c.finalExhaustedDuration)||8):(Number(c.exhaustedDuration)||2);} }
+ else if(b.state==='exhausted' && b.stateTimer<=0){b.state='recovery'; b.stateTimer=Number(c.recoveryDuration)||1.0;}
+ else if(b.state==='recovery' && b.stateTimer<=0){b.state='idle'; b.stateTimer=Number(c.idleDuration)||1.2;}
+ const cr=(Number(b.radius)||76)+(Number(p.radius)||0); if(distance(b,p)<=cr && b.damageTimer<=0){ if(!inv) p.hp-=(b.state==='charging'?(Number(c.chargeDamage)||24):(Number(c.contactDamage)||14)); b.damageTimer=Number(c.damageCooldown)||0.34; const kb=Number(c.playerKnockback)||140; p.x-=dx/dist*kb*dt; p.y-=dy/dist*kb*dt; }
+ p.x=clamp(p.x,p.radius,(Number(a.arenaWidth)||960)-p.radius); p.y=clamp(p.y,p.radius,(Number(a.arenaHeight)||540)-p.radius); b.x=clamp(b.x,b.radius,(Number(a.arenaWidth)||960)-b.radius); b.y=clamp(b.y,b.radius,(Number(a.arenaHeight)||540)-b.radius);
+ for(let i=patches.length-1;i>=0;i--){const t=patches[i]; if(!t){patches.splice(i,1);continue;} t.age=(t.age||0)+dt; t.life=(t.life||0)-dt; t.ruinLevel=clamp((t.ruinLevel||0)-(Number(rg.recoveryPerSecond)||0.06)*dt,0,Number(rg.maxRuinLevel)||1); if(t.life<=0||t.ruinLevel<=0.02) patches.splice(i,1);} if((p.hp||0)<=0) showGameOver(); }
 
 function updateMatsuruBossBattle(dt) {
   const duel = gameState?.duel; const p = gameState?.player; const c = CONFIG.duel || {}; const b = duel?.boss;
@@ -3160,6 +3207,7 @@ function getActiveBossTarget() {
       ref: boss,
     };
   }
+  if (duel.bossType === 'haginoinoshishi') { const boss = duel.boss; if (!boss) return null; return { type:'boss', bossType:'haginoinoshishi', x:Number(boss.x)||0, y:Number(boss.y)||0, radius:Number(boss.radius)||76, hp:Number(boss.hp)||0, maxHp:Number(boss.maxHp)||1, ref:boss }; }
   if (duel.bossType === 'matsuru') {
     const boss = duel.boss;
     if (!boss) return null;
@@ -3185,6 +3233,14 @@ function damageActiveBoss(amount, source = 'unknown') {
     mult = vulnerable ? vulnerableMult : gazeMult;
   }
   if (target.bossType === 'tododon' && (boss.state === 'dead' || duel?.isComplete || duel?.active !== true)) return false;
+  if (target.bossType === 'haginoinoshishi') {
+    const c = CONFIG.haginoinoshishi?.boss || {};
+    const state = boss.state || 'idle';
+    if (state === 'finalExhausted') { completeBossEncounter('haginoinoshishi'); boss.state='defeated'; return true; }
+    if (state === 'exhausted') { boss.fatigue = clamp((Number(boss.fatigue)||0) + 8, 0, Number(c.fatigueRequiredForFinal)||100); boss.weakPointFlashTimer = 0.35; }
+    else { boss.resistantFlashTimer = 0.25; }
+    return true;
+  }
   if (target.bossType === 'matsuru') {
     const passiveReduction = Number(CONFIG.duel?.matsuruPassiveReduction) || 0.15;
     const p = gameState?.player;
@@ -3728,6 +3784,7 @@ function drawAirBullets() {
 function drawDuelTododon() {
   if (gameState?.duel?.bossType === 'red_light') return renderRedLightBossBattle();
   if (gameState?.duel?.bossType === 'matsuru') return renderMatsuruBossBattle();
+  if (gameState?.duel?.bossType === 'haginoinoshishi') return renderHaginoinoshishiBossBattle();
   if (gameState.phase !== 'duel') return;
   const t = gameState?.duel?.tododon; if (!t) return;
   const c = CONFIG.duel || {};
@@ -3747,6 +3804,10 @@ function drawDuelTododon() {
   if (t.cannon?.warning || t.cannon?.active) { ctx.save(); ctx.fillStyle = t.cannon.warning ? 'rgba(255,190,120,0.22)' : 'rgba(255,110,80,0.45)'; ctx.fillRect(0, (t.cannon.y || 0) - (c.cannonWidth || 86) / 2, CONFIG.canvas.width, c.cannonWidth || 86); ctx.restore(); }
 }
 function safeDrawImage(img, x, y, w, h) { if (!img || !img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) return false; ctx.drawImage(img, x, y, w, h); return true; }
+
+function renderHaginoinoshishiBossBattle() { const duel=gameState?.duel; const b=duel?.boss; const cfg=CONFIG.haginoinoshishi||{}; const rg=cfg.ruinedGround||{}; const v=cfg.visuals||{}; if(!b)return; for(const t of (duel?.ruinedGround||[])){const a=clamp((t.ruinLevel||0)/(Number(rg.maxRuinLevel)||1),0,1); ctx.fillStyle = a>0.55 ? (v.trailColorDeep||'rgba(66,45,32,0.45)') : (v.trailColorFresh||'rgba(111,82,61,0.22)'); ctx.beginPath(); ctx.arc(t.x||0,t.y||0,t.radius||20,0,Math.PI*2); ctx.fill(); }
+ const img=gameState?.images?.boss_haginoshishi; const s=(b.radius||76)*2.3; if(img?.loaded&&img?.img){ctx.drawImage(img.img,b.x-s*0.5,b.y-s*0.5,s,s);} else {ctx.fillStyle=v.bossColorFallback||'#3e342f'; ctx.beginPath(); ctx.ellipse(b.x,b.y,(b.radius||76)*1.2,b.state==='prepareCharge'||b.state==='charging'?(b.radius||76)*0.78:(b.radius||76)*0.92,0,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#e9dfd1'; ctx.fillRect(b.x+(Math.cos(b.facing||0)*(b.radius||76)*0.6)-6,b.y+(Math.sin(b.facing||0)*(b.radius||76)*0.6)-4,12,8);} ctx.fillStyle='rgba(10,16,24,0.65)'; ctx.fillRect(580,20,340,54); ctx.fillStyle='#f4f7f9'; ctx.fillText(`HAGINOINOSHISHI ${b.state}`,594,40); ctx.fillText(`Fatigue ${Math.floor(b.fatigue||0)} / ${Math.floor(CONFIG.haginoinoshishi?.boss?.fatigueRequiredForFinal||100)}`,594,62); }
+
 function renderMatsuruBossBattle() {
   const b = gameState?.duel?.boss; if (!b) return;
   const img = getBossImage('matsuru');
