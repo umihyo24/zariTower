@@ -367,10 +367,29 @@ const CONFIG = {
     matsuruCounterTellDuration: 0.3,
     matsuruCounterDuration: 0.45,
     matsuruNeedleCooldown: 5.2,
-    matsuruNeedleSpeed: 160,
-    matsuruNeedleDamage: 12,
-    matsuruNeedleFanCount: 5,
+    matsuruNeedleSpeed: 130,
+    matsuruNeedleDamage: 10,
+    matsuruNeedleFanCount: 2,
     matsuruNeedleLife: 3.6,
+    matsuruLeafSpeed: 122,
+    matsuruLeafLifetime: 6.2,
+    matsuruLeafInitialCount: 2,
+    matsuruLeafStickPadding: 16,
+    matsuruTurretActivationDelay: 1.7,
+    matsuruTurretFireInterval: 2.7,
+    matsuruTurretMaxCorrectionAngle: 0.38,
+    matsuruTurretBaseSpreadAngle: 0.28,
+    matsuruTurretLeafSpawnSpeedScale: 0.9,
+    matsuruTurretLeafDamageScale: 0.8,
+    matsuruTurretMaxActive: 12,
+    matsuruTurretDormantTimeout: 11.5,
+    matsuruTurretDecayDuration: 6.5,
+    matsuruLeafMaxCount: 80,
+    matsuruLeafMaxMovingCount: 28,
+    matsuruMatsukazeLeafSpeedBoost: 1.38,
+    matsuruMatsukazeTurretTurnStrength: 0.48,
+    matsuruMatsukazeReactivateCount: 3,
+    matsuruMatsukazeBlowAwayCount: 2,
     matsuruWindDamage: 8,
     matsuruWindHitCooldown: 0.25,
     matsuruWindPush: 280,
@@ -1066,7 +1085,7 @@ function startMatsuruEncounter() {
     boss: {
       id: 'duel_matsuru', x: Number(c.matsuruX) || 770, y: Number(c.matsuruY) || 270, radius: Number(c.matsuruRadius) || 84, hp: Number(c.matsuruHp) || 560, maxHp: Number(c.matsuruHp) || 560,
       state: 'idle', stateTimer: Number(c.matsuruIdleDuration) || 1.2, facingX: -1, attackText: '', attackTextTimer: 0, windX: 0, windVx: 0, windReturning: false,
-      passiveActive: true, lastHitTimer: 0, empowered: false, multiHitTimer: 0, counterTell: false, needles: [], counterVx: 0, contactDamageTimer: 0, counterCooldown: 0, matsubaCooldown: 0, needlesSpawned: false, hasCounterHit: false,
+      passiveActive: true, lastHitTimer: 0, empowered: false, multiHitTimer: 0, counterTell: false, needles: [], counterVx: 0, contactDamageTimer: 0, counterCooldown: 0, matsubaCooldown: 0, needlesSpawned: false, hasCounterHit: false, motionTime: 0, bodySway: 0, glidePhase: 0,
     },
     timer: 0,
     isComplete: false,
@@ -2938,10 +2957,14 @@ function updateMatsuruBossBattle(dt) {
   p.x = clamp(p.x, p.radius, CONFIG.canvas.width - p.radius); p.y = clamp(p.y, p.radius, CONFIG.canvas.height - p.radius);
   b.stateTimer = Math.max(0, (b.stateTimer || 0) - dt); b.attackTextTimer = Math.max(0, (b.attackTextTimer || 0) - dt); if (b.attackTextTimer <= 0) b.attackText = '';
   b.counterCooldown = Math.max(0, (b.counterCooldown || 0) - dt); b.matsubaCooldown = Math.max(0, (b.matsubaCooldown || 0) - dt);
+  b.motionTime = (b.motionTime || 0) + dt;
+  b.glidePhase = (b.glidePhase || 0) + dt * 0.7;
+  b.bodySway = Math.sin((b.motionTime || 0) * 1.8) * 0.06;
   b.lastHitTimer += dt; b.empowered = b.lastHitTimer >= (c.matsuruPassiveEmpowerDelay || 4.5); b.passiveActive = b.state === 'recovery' ? false : true;
+  b.facingX = p.x < b.x ? -1 : 1;
   if (b.state === 'idle' && b.stateTimer <= 0) {
     const canMatsuba = (b.matsubaCooldown || 0) <= 0;
-    const doMatsuba = canMatsuba && Math.random() < 0.25;
+    const doMatsuba = canMatsuba && Math.random() < 0.42;
     b.state = doMatsuba ? 'pineNeedles' : 'prepareMatsukaze';
     b.stateTimer = doMatsuba ? (c.MATSUBA_CAST_TIME || 0.45) : (c.matsuruPrepareDuration || 0.8);
     b.attackText = doMatsuba ? '松葉散らし' : '松風の構え…';
@@ -2954,12 +2977,14 @@ function updateMatsuruBossBattle(dt) {
   else if (b.state === 'recovery' && b.stateTimer <= 0) { b.state = 'idle'; b.stateTimer = c.matsuruIdleDuration || 1.2; }
   else if (b.state === 'pineNeedles') {
     if (!b.needlesSpawned) {
-      const n = Math.max(3, c.MATSUBA_PROJECTILE_COUNT || 5);
-      const spread = c.MATSUBA_SPREAD_ANGLE || 0.9;
+      const n = Math.max(1, Number(c.matsuruLeafInitialCount) || 2);
+      const spread = c.matsuruTurretBaseSpreadAngle || 0.28;
       for (let i = 0; i < n; i += 1) {
         const t = n === 1 ? 0.5 : i / (n - 1);
         const a = -spread * 0.5 + spread * t;
-        b.needles.push({ x: b.x - b.radius * 0.6, y: b.y, vx: -Math.cos(a) * (c.MATSUBA_PROJECTILE_SPEED || 170), vy: Math.sin(a) * (c.MATSUBA_PROJECTILE_SPEED || 170), radius: c.MATSUBA_PROJECTILE_RADIUS || 7, life: c.matsuruNeedleLife || 3.6, damage: c.MATSUBA_PROJECTILE_DAMAGE || 12 });
+        const d = (b.facingX || -1) < 0 ? Math.PI : 0;
+        const angle = d + a;
+        b.needles.push({ x: b.x + (b.facingX || -1) * b.radius * 0.45, y: b.y, vx: Math.cos(angle) * (c.matsuruLeafSpeed || 122), vy: Math.sin(angle) * (c.matsuruLeafSpeed || 122), radius: c.MATSUBA_PROJECTILE_RADIUS || 7, life: c.matsuruLeafLifetime || 6.2, damage: c.matsuruNeedleDamage || 10, angle, spin: rand(-3, 3), sway: rand(0.6, 1.4), type: 'moving', source: 'matsuru' });
       }
       b.needlesSpawned = true;
       b.matsubaCooldown = c.MATSUBA_COOLDOWN || 2.4;
@@ -2978,9 +3003,62 @@ function updateMatsuruBossBattle(dt) {
     }
     if (b.stateTimer <= 0) { b.state = 'idle'; b.stateTimer = c.matsuruIdleDuration || 1.2; b.counterVx = 0; }
   }
-  if (b.state === 'matsukaze' || b.state === 'matsukazeReturn') { b.windX += b.windVx * (CONFIG.canvas.width * dt * 0.7); b.multiHitTimer = Math.max(0, (b.multiHitTimer || 0) - dt); const windHit = Math.abs(p.x - b.windX) <= 160 && Math.abs(p.y - b.y) <= 120; if (windHit) { p.x = clamp(p.x + b.windVx * (c.matsuruWindPush || 280) * dt, p.radius, CONFIG.canvas.width - p.radius); if (b.multiHitTimer <= 0) { p.hp -= (c.matsuruWindDamage || 8) * (b.empowered ? (c.matsuruPassiveEmpowerDamageScale || 1.35) : 1); b.multiHitTimer = c.matsuruWindHitCooldown || 0.25; } } }
-  b.needles = (b.needles || []).filter(n => n && n.life > 0 && n.x > -80 && n.x < CONFIG.canvas.width + 80 && n.y > -80 && n.y < CONFIG.canvas.height + 80);
-  b.needles.forEach(n => { n.x += n.vx * dt; n.y += n.vy * dt; n.life -= dt; if (distance(n, p) <= n.radius + p.radius && gameState.damageTimer <= 0) { p.hp -= n.damage; gameState.damageTimer = CONFIG.enemy.damageCooldown; n.life = 0; } });
+  if (b.state === 'matsukaze' || b.state === 'matsukazeReturn') {
+    b.windX += b.windVx * (CONFIG.canvas.width * dt * 0.7); b.multiHitTimer = Math.max(0, (b.multiHitTimer || 0) - dt); const windHit = Math.abs(p.x - b.windX) <= 160 && Math.abs(p.y - b.y) <= 120;
+    if (windHit) { p.x = clamp(p.x + b.windVx * (c.matsuruWindPush || 280) * dt, p.radius, CONFIG.canvas.width - p.radius); if (b.multiHitTimer <= 0) { p.hp -= (c.matsuruWindDamage || 8) * (b.empowered ? (c.matsuruPassiveEmpowerDamageScale || 1.35) : 1); b.multiHitTimer = c.matsuruWindHitCooldown || 0.25; } }
+    const leaves = Array.isArray(b.needles) ? b.needles : [];
+    const dormant = leaves.filter(n => n && (n.type === 'dormant' || n.type === 'decaying'));
+    dormant.slice(0, Math.max(0, Number(c.matsuruMatsukazeReactivateCount) || 3)).forEach(n => { n.type = 'turret'; n.fireTimer = 0.4 + rand(0, 0.6); n.dormantTimer = 0; });
+    const turrets = leaves.filter(n => n && n.type === 'turret');
+    turrets.forEach(n => { n.baseAngle = (n.baseAngle || 0) + b.windVx * (Number(c.matsuruMatsukazeTurretTurnStrength) || 0.48) * dt; });
+    const movers = leaves.filter(n => n && n.type === 'moving').slice(0, 8);
+    movers.forEach(n => { n.vx *= 1 + ((Number(c.matsuruMatsukazeLeafSpeedBoost) || 1.38) - 1) * dt * 2.2; n.vy *= 1 + ((Number(c.matsuruMatsukazeLeafSpeedBoost) || 1.38) - 1) * dt * 2.2; });
+    const toBlow = leaves.filter(n => n && n.type === 'turret').sort((a, z) => (a.age || 0) - (z.age || 0)).slice(0, Math.max(0, Number(c.matsuruMatsukazeBlowAwayCount) || 2));
+    toBlow.forEach(n => { n.type = 'decaying'; n.decayTimer = Number(c.matsuruTurretDecayDuration) || 6.5; });
+  }
+  b.needles = (Array.isArray(b.needles) ? b.needles : []).filter(n => n && n.life > 0);
+  const maxLeaves = Math.max(20, Number(c.matsuruLeafMaxCount) || 80);
+  if (b.needles.length > maxLeaves) b.needles.sort((a, z) => (a.age || 0) - (z.age || 0)).splice(0, b.needles.length - maxLeaves);
+  const maxMoving = Math.max(8, Number(c.matsuruLeafMaxMovingCount) || 28);
+  let movingCount = 0;
+  const fireFromTurret = (turret) => {
+    const spread = Number(c.matsuruTurretBaseSpreadAngle) || 0.28; const baseAngle = Number(turret?.baseAngle) || Math.PI; const maxCorr = Number(c.matsuruTurretMaxCorrectionAngle) || 0.38;
+    const toPlayer = Math.atan2((p.y || 0) - (turret.y || 0), (p.x || 0) - (turret.x || 0)); let delta = toPlayer - baseAngle;
+    while (delta > Math.PI) delta -= Math.PI * 2; while (delta < -Math.PI) delta += Math.PI * 2;
+    const corrected = baseAngle + clamp(delta, -maxCorr, maxCorr);
+    for (let i = 0; i < 2; i += 1) {
+      const angle = corrected + (i === 0 ? -spread : spread);
+      b.needles.push({ x: turret.x, y: turret.y, vx: Math.cos(angle) * (Number(c.matsuruLeafSpeed) || 122) * (Number(c.matsuruTurretLeafSpawnSpeedScale) || 0.9), vy: Math.sin(angle) * (Number(c.matsuruLeafSpeed) || 122) * (Number(c.matsuruTurretLeafSpawnSpeedScale) || 0.9), radius: Number(c.MATSUBA_PROJECTILE_RADIUS) || 7, life: Number(c.matsuruLeafLifetime) || 6.2, damage: (Number(c.matsuruNeedleDamage) || 10) * (Number(c.matsuruTurretLeafDamageScale) || 0.8), angle, spin: rand(-2.4, 2.4), sway: rand(0.7, 1.3), type: 'moving', source: 'turret' });
+    }
+  };
+  b.needles.forEach(n => {
+    n.age = (n.age || 0) + dt; n.wave = (n.wave || rand(0, Math.PI * 2)) + dt * (n.sway || 1);
+    if (n.type === 'moving') {
+      movingCount += 1;
+      if (movingCount > maxMoving) { n.type = 'decaying'; n.decayTimer = Number(c.matsuruTurretDecayDuration) || 6.5; }
+      n.x += (n.vx || 0) * dt; n.y += (n.vy || 0) * dt; n.angle = Math.atan2(n.vy || 0, n.vx || 1) + Math.sin(n.wave || 0) * 0.12; n.life -= dt;
+      const pad = Number(c.matsuruLeafStickPadding) || 16;
+      const hitWall = n.x <= pad || n.x >= CONFIG.canvas.width - pad || n.y <= pad || n.y >= CONFIG.canvas.height - pad;
+      if (hitWall) { n.x = clamp(n.x, pad, CONFIG.canvas.width - pad); n.y = clamp(n.y, pad, CONFIG.canvas.height - pad); n.type = 'dormant'; n.activationTimer = Number(c.matsuruTurretActivationDelay) || 1.7; n.dormantTimer = 0; n.baseAngle = n.angle || Math.PI; n.vx = 0; n.vy = 0; n.life = Math.max(n.life, (Number(c.matsuruTurretDormantTimeout) || 11.5) + (Number(c.matsuruTurretDecayDuration) || 6.5) + 2); }
+      if (distance(n, p) <= (n.radius || 7) + (p.radius || 18) && gameState.damageTimer <= 0) { p.hp -= n.damage || 8; gameState.damageTimer = CONFIG.enemy.damageCooldown; n.type = 'decaying'; n.decayTimer = 0.4; }
+    } else if (n.type === 'dormant') {
+      n.activationTimer = Math.max(0, (n.activationTimer || 0) - dt); n.dormantTimer = (n.dormantTimer || 0) + dt;
+      if (n.activationTimer <= 0) { n.type = 'turret'; n.fireTimer = Number(c.matsuruTurretFireInterval) || 2.7; }
+      if ((n.dormantTimer || 0) > (Number(c.matsuruTurretDormantTimeout) || 11.5)) { n.type = 'decaying'; n.decayTimer = Number(c.matsuruTurretDecayDuration) || 6.5; }
+    } else if (n.type === 'turret') {
+      n.fireTimer = (n.fireTimer || Number(c.matsuruTurretFireInterval) || 2.7) - dt;
+      if (n.fireTimer <= 0) { n.fireTimer = Number(c.matsuruTurretFireInterval) || 2.7; fireFromTurret(n); }
+      n.dormantTimer = (n.dormantTimer || 0) + dt;
+      if ((n.dormantTimer || 0) > (Number(c.matsuruTurretDormantTimeout) || 11.5)) { n.type = 'decaying'; n.decayTimer = Number(c.matsuruTurretDecayDuration) || 6.5; }
+      if (distance(n, p) <= (n.radius || 7) + (p.radius || 18) && gameState.damageTimer <= 0) { p.hp -= (n.damage || 8) * 0.65; gameState.damageTimer = CONFIG.enemy.damageCooldown; }
+    } else if (n.type === 'decaying') {
+      n.decayTimer = (n.decayTimer || Number(c.matsuruTurretDecayDuration) || 6.5) - dt;
+      if ((n.decayTimer || 0) <= 0) n.life = 0;
+    }
+  });
+  const turrets = b.needles.filter(n => n && n.type === 'turret');
+  const maxActiveTurrets = Math.max(4, Number(c.matsuruTurretMaxActive) || 12);
+  if (turrets.length > maxActiveTurrets) turrets.sort((a, z) => (z.age || 0) - (a.age || 0)).slice(maxActiveTurrets).forEach(n => { n.type = 'dormant'; n.activationTimer = 2.2; });
   if ((p.hp || 0) <= 0) return showGameOver();
   if ((b.hp || 0) <= 0) { b.state = 'defeated'; completeBossEncounter('matsuru'); }
 }
@@ -3616,18 +3694,33 @@ function renderMatsuruBossBattle() {
   const img = getBossImage('matsuru');
   drawEntityShadow(b, 'rgba(0,0,0,0.45)');
   ctx.save();
-  const stretch = b.state === 'matsukaze' || b.state === 'matsukazeReturn' ? 1.15 : 1;
+  const stretch = b.state === 'matsukaze' || b.state === 'matsukazeReturn' ? 1.12 : 1 + Math.sin((b.motionTime || 0) * 1.2) * 0.03;
   const tellLean = b.state === 'counterTell' ? 0.86 : 1;
+  const observeLean = b.state === 'idle' ? 1 + Math.sin((b.motionTime || 0) * 0.85) * 0.03 : 1;
   const s = b.radius * 2.3;
-  if (!img || !safeDrawImage(img.img, b.x - (s * stretch) * 0.5, b.y - s * 0.5, s * stretch * tellLean, s)) {
+  const renderX = b.x + Math.sin((b.glidePhase || 0) * 0.9) * 10;
+  const renderY = b.y + Math.cos((b.glidePhase || 0) * 0.7) * 5;
+  if (!img || !safeDrawImage(img.img, renderX - (s * stretch) * 0.5, renderY - s * 0.5, s * stretch * tellLean * observeLean, s)) {
     ctx.fillStyle = b.passiveActive ? '#2b4a35' : '#88b395';
-    ctx.beginPath(); ctx.ellipse(b.x, b.y, b.radius * stretch, b.radius * 0.75, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#d9f5df'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(b.x - b.radius * 0.9, b.y); ctx.lineTo(b.x + b.radius * 0.9, b.y); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(renderX, renderY, b.radius * stretch, b.radius * 0.75, b.bodySway || 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = '#d9f5df'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(renderX - b.radius * 0.9, renderY); ctx.lineTo(renderX + b.radius * 0.9, renderY); ctx.stroke();
   }
   if (b.state === 'matsukaze' || b.state === 'matsukazeReturn') { ctx.fillStyle = 'rgba(195,235,255,0.25)'; ctx.fillRect(b.windX - 165, b.y - 110, 330, 220); }
   if (b.state === 'counterTell') { ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(b.x + (b.facingX || -1) * 26, b.y - 16, 22, 3); }
   if (b.state === 'counterThrust') { ctx.fillStyle = 'rgba(240,255,245,0.35)'; ctx.fillRect(b.x - (b.facingX || -1) * 46, b.y - 10, 58, 20); }
-  (b.needles || []).forEach(n => { ctx.fillStyle = 'rgba(215,255,205,0.95)'; ctx.fillRect(n.x - 6, n.y - 2, 12, 4); });
+  (b.needles || []).forEach(n => {
+    if (!n) return;
+    ctx.save();
+    const alpha = n.type === 'decaying' ? clamp((n.decayTimer || 0) / ((CONFIG.duel?.matsuruTurretDecayDuration) || 6.5), 0, 1) : 1;
+    ctx.globalAlpha = alpha;
+    ctx.translate(n.x || 0, n.y || 0);
+    const sway = Math.sin(n.wave || 0) * 0.18;
+    ctx.rotate((n.angle || 0) + sway);
+    if (n.type === 'turret') { ctx.fillStyle = 'rgba(160,220,120,0.95)'; ctx.fillRect(-8, -2.2, 16, 4.4); ctx.fillStyle = 'rgba(230,255,220,0.65)'; ctx.fillRect(6, -3, 5, 6); }
+    else if (n.type === 'dormant') { ctx.fillStyle = 'rgba(125,170,102,0.88)'; ctx.fillRect(-7, -1.8, 14, 3.6); ctx.fillStyle = 'rgba(50,80,45,0.6)'; ctx.fillRect(-1, -4, 2, 8); }
+    else { ctx.fillStyle = 'rgba(215,255,205,0.95)'; ctx.fillRect(-6, -2, 12, 4); }
+    ctx.restore();
+  });
   ctx.restore();
 }
 function renderRedLightBossBattle() {
