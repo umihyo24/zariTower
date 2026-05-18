@@ -248,6 +248,16 @@ const CONFIG = {
     fastExitUnlockEnabled: true,
     fastExitUnlockSeconds: 3,
     targetSurvivalTimeOverride: null,
+    debugPlayerInvincibleDefault: false,
+    matsuruFastModeDefault: false,
+    matsuruActionSpeedMultiplier: 1.18,
+    matsuruIdleDurationFast: 0.62,
+    matsuruPrepareDurationFast: 0.42,
+    matsuruNeedleCooldownFast: 1.25,
+    matsubaTurretActivationDelay: 0.9,
+    matsubaTurretFireInterval: 1.6,
+    matsubaDebugGrowthMultiplier: 1.55,
+    matsuruDebugActionSpeedMultiplier: 1.9,
     modes: [
       { id: 'normal', label: 'Normal Start', startMode: 'normal' },
       {
@@ -359,8 +369,8 @@ const CONFIG = {
     matsuruRadius: 84,
     matsuruHp: 560,
     matsuruMoveSpeed: 90,
-    matsuruIdleDuration: 1.2,
-    matsuruPrepareDuration: 0.8,
+    matsuruIdleDuration: 0.9,
+    matsuruPrepareDuration: 0.62,
     matsuruWindDuration: 1.5,
     matsuruReturnDuration: 1.0,
     matsuruRecoveryDuration: 2.0,
@@ -375,8 +385,8 @@ const CONFIG = {
     matsuruLeafLifetime: 6.2,
     matsuruLeafInitialCount: 2,
     matsuruLeafStickPadding: 16,
-    matsuruTurretActivationDelay: 1.7,
-    matsuruTurretFireInterval: 2.7,
+    matsuruTurretActivationDelay: 1.2,
+    matsuruTurretFireInterval: 2.1,
     matsuruTurretMaxCorrectionAngle: 0.38,
     matsuruTurretBaseSpreadAngle: 0.28,
     matsuruTurretLeafSpawnSpeedScale: 0.9,
@@ -543,6 +553,10 @@ const gameState = {
     targetSurvivalTimeOverride: null,
     bossBattleMode: false,
     bossType: null,
+    playerInvincible: Boolean(CONFIG.debug?.debugPlayerInvincibleDefault),
+    matsuruFastMode: Boolean(CONFIG.debug?.matsuruFastModeDefault),
+    matsuruActionSpeedMultiplierOverride: Number(CONFIG.debug?.matsuruActionSpeedMultiplier) || 1,
+    matsubaGrowthMultiplierOverride: 1,
   },
   startUi: {
     debugMenuOpen: false,
@@ -680,6 +694,10 @@ function ensureDebugState() {
       menuOpen: false,
       bossMenuOpen: false,
       showStats: false,
+      playerInvincible: Boolean(CONFIG.debug?.debugPlayerInvincibleDefault),
+      matsuruFastMode: Boolean(CONFIG.debug?.matsuruFastModeDefault),
+      matsuruActionSpeedMultiplierOverride: Number(CONFIG.debug?.matsuruActionSpeedMultiplier) || 1,
+      matsubaGrowthMultiplierOverride: 1,
     };
   }
 }
@@ -716,6 +734,10 @@ function resetState(nextPhase = gameState.phase || 'start') {
     targetSurvivalTimeOverride: Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride) ? gameState.debug.targetSurvivalTimeOverride : null,
     bossBattleMode: Boolean(gameState?.debug?.bossBattleMode),
     bossType: typeof gameState?.debug?.bossType === 'string' ? gameState.debug.bossType : null,
+    playerInvincible: Boolean(gameState?.debug?.playerInvincible),
+    matsuruFastMode: Boolean(gameState?.debug?.matsuruFastMode),
+    matsuruActionSpeedMultiplierOverride: Number.isFinite(gameState?.debug?.matsuruActionSpeedMultiplierOverride) ? gameState.debug.matsuruActionSpeedMultiplierOverride : (Number(CONFIG.debug?.matsuruActionSpeedMultiplier) || 1),
+    matsubaGrowthMultiplierOverride: Number.isFinite(gameState?.debug?.matsubaGrowthMultiplierOverride) ? gameState.debug.matsubaGrowthMultiplierOverride : 1,
   };
   const preservedStartUi = {
     debugMenuOpen: Boolean(gameState?.startUi?.debugMenuOpen),
@@ -791,6 +813,10 @@ function startRun() {
     targetSurvivalTimeOverride: Number.isFinite(gameState?.debug?.targetSurvivalTimeOverride) ? gameState.debug.targetSurvivalTimeOverride : null,
     bossBattleMode: Boolean(gameState?.debug?.bossBattleMode),
     bossType: typeof gameState?.debug?.bossType === 'string' ? gameState.debug.bossType : null,
+    playerInvincible: Boolean(gameState?.debug?.playerInvincible),
+    matsuruFastMode: Boolean(gameState?.debug?.matsuruFastMode),
+    matsuruActionSpeedMultiplierOverride: Number.isFinite(gameState?.debug?.matsuruActionSpeedMultiplierOverride) ? gameState.debug.matsuruActionSpeedMultiplierOverride : (Number(CONFIG.debug?.matsuruActionSpeedMultiplier) || 1),
+    matsubaGrowthMultiplierOverride: Number.isFinite(gameState?.debug?.matsubaGrowthMultiplierOverride) ? gameState.debug.matsubaGrowthMultiplierOverride : 1,
   };
   resetState('playing');
   gameState.debug = preservedDebug;
@@ -1076,9 +1102,10 @@ function startMatsuruEncounter() {
   gameState.enemies = [];
   gameState.projectiles = [];
   gameState.particles = [];
+  gameState.xpGems = [];
   gameState.manualShots = [];
-  p.x = clamp(Number(c.playerStartX) || 160, p.radius, CONFIG.canvas.width - p.radius);
-  p.y = clamp(Number(c.playerStartY) || 270, p.radius, CONFIG.canvas.height - p.radius);
+  p.x = clamp((Number(c.matsuruX) || 770) - 290, p.radius, CONFIG.canvas.width - p.radius);
+  p.y = clamp(Number(c.matsuruY) || 270, p.radius, CONFIG.canvas.height - p.radius);
   gameState.duel = {
     active: true,
     bossType: 'matsuru',
@@ -1365,6 +1392,28 @@ function renderDebugMenu() {
     renderDebugMenu();
   });
   fragment.appendChild(toggleBossBtn);
+
+  const invBtn = document.createElement('button');
+  invBtn.type = 'button';
+  invBtn.className = 'debug-preset-btn';
+  invBtn.textContent = `Invincible: ${gameState?.debug?.playerInvincible ? 'ON' : 'OFF'}`;
+  invBtn.addEventListener('click', () => {
+    ensureDebugState();
+    gameState.debug.playerInvincible = !Boolean(gameState?.debug?.playerInvincible);
+    renderDebugMenu();
+  });
+  fragment.appendChild(invBtn);
+
+  const matsuruFastBtn = document.createElement('button');
+  matsuruFastBtn.type = 'button';
+  matsuruFastBtn.className = 'debug-preset-btn';
+  matsuruFastBtn.textContent = `Matsuru Fast: ${gameState?.debug?.matsuruFastMode ? 'ON' : 'OFF'}`;
+  matsuruFastBtn.addEventListener('click', () => {
+    ensureDebugState();
+    gameState.debug.matsuruFastMode = !Boolean(gameState?.debug?.matsuruFastMode);
+    renderDebugMenu();
+  });
+  fragment.appendChild(matsuruFastBtn);
 
   if (isBossOpen) {
     BOSS_STATUS_ORDER.forEach((status) => {
@@ -2953,12 +3002,21 @@ function updateDuel(dt) {
 function updateMatsuruBossBattle(dt) {
   const duel = gameState?.duel; const p = gameState?.player; const c = CONFIG.duel || {}; const b = duel?.boss;
   if (!duel || !p || !b) return;
+  const isInvincible = Boolean(gameState?.debug?.enabled) && Boolean(gameState?.debug?.playerInvincible);
+  const debugFastMode = Boolean(gameState?.debug?.enabled) && Boolean(gameState?.debug?.matsuruFastMode);
+  const speedBase = Number(CONFIG.debug?.matsuruActionSpeedMultiplier) || 1;
+  const speedOverride = Number(gameState?.debug?.matsuruActionSpeedMultiplierOverride);
+  const speedExtra = Number.isFinite(speedOverride) ? speedOverride : speedBase;
+  const fastSpeed = Number(CONFIG.debug?.matsuruDebugActionSpeedMultiplier) || 1;
+  const actionSpeed = clamp((Number(CONFIG.debug?.matsuruActionSpeedMultiplier) || 1) * (debugFastMode ? fastSpeed : 1) * clamp(speedExtra, 0.6, 3.2), 0.6, 3.6);
+  const scaledDt = dt * actionSpeed;
+  const matsubaGrowth = clamp((Number(gameState?.debug?.matsubaGrowthMultiplierOverride) || 1) * (debugFastMode ? (Number(CONFIG.debug?.matsubaDebugGrowthMultiplier) || 1) : 1), 0.6, 3.2);
   updatePlayerMovement(dt); updatePlayerAttack(dt); updateProjectiles(dt); updateParticles(dt);
   p.x = clamp(p.x, p.radius, CONFIG.canvas.width - p.radius); p.y = clamp(p.y, p.radius, CONFIG.canvas.height - p.radius);
-  b.stateTimer = Math.max(0, (b.stateTimer || 0) - dt); b.attackTextTimer = Math.max(0, (b.attackTextTimer || 0) - dt); if (b.attackTextTimer <= 0) b.attackText = '';
-  b.counterCooldown = Math.max(0, (b.counterCooldown || 0) - dt); b.matsubaCooldown = Math.max(0, (b.matsubaCooldown || 0) - dt);
-  b.motionTime = (b.motionTime || 0) + dt;
-  b.glidePhase = (b.glidePhase || 0) + dt * 0.7;
+  b.stateTimer = Math.max(0, (b.stateTimer || 0) - scaledDt); b.attackTextTimer = Math.max(0, (b.attackTextTimer || 0) - scaledDt); if (b.attackTextTimer <= 0) b.attackText = '';
+  b.counterCooldown = Math.max(0, (b.counterCooldown || 0) - scaledDt); b.matsubaCooldown = Math.max(0, (b.matsubaCooldown || 0) - scaledDt * matsubaGrowth);
+  b.motionTime = (b.motionTime || 0) + scaledDt;
+  b.glidePhase = (b.glidePhase || 0) + scaledDt * 0.7;
   b.bodySway = Math.sin((b.motionTime || 0) * 1.8) * 0.06;
   b.lastHitTimer += dt; b.empowered = b.lastHitTimer >= (c.matsuruPassiveEmpowerDelay || 4.5); b.passiveActive = b.state === 'recovery' ? false : true;
   b.facingX = p.x < b.x ? -1 : 1;
@@ -2966,7 +3024,7 @@ function updateMatsuruBossBattle(dt) {
     const canMatsuba = (b.matsubaCooldown || 0) <= 0;
     const doMatsuba = canMatsuba && Math.random() < 0.42;
     b.state = doMatsuba ? 'pineNeedles' : 'prepareMatsukaze';
-    b.stateTimer = doMatsuba ? (c.MATSUBA_CAST_TIME || 0.45) : (c.matsuruPrepareDuration || 0.8);
+    b.stateTimer = doMatsuba ? (c.MATSUBA_CAST_TIME || 0.45) : (debugFastMode ? (Number(CONFIG.debug?.matsuruPrepareDurationFast) || c.matsuruPrepareDuration || 0.8) : (c.matsuruPrepareDuration || 0.8));
     b.attackText = doMatsuba ? '松葉散らし' : '松風の構え…';
     b.attackTextTimer = 0.8;
     b.needlesSpawned = false;
@@ -2974,7 +3032,7 @@ function updateMatsuruBossBattle(dt) {
   else if (b.state === 'prepareMatsukaze' && b.stateTimer <= 0) { b.state = 'matsukaze'; b.stateTimer = c.matsuruWindDuration || 1.5; b.windX = b.x; b.windVx = -1; b.multiHitTimer = 0; }
   else if (b.state === 'matsukaze' && b.stateTimer <= 0) { b.state = 'matsukazeReturn'; b.stateTimer = c.matsuruReturnDuration || 1.0; b.windVx = 1; b.windReturning = true; }
   else if (b.state === 'matsukazeReturn' && b.stateTimer <= 0) { b.state = 'recovery'; b.stateTimer = c.matsuruRecoveryDuration || 2.0; b.attackText = '松鶴延年が緩んだ！'; b.attackTextTimer = 1.0; }
-  else if (b.state === 'recovery' && b.stateTimer <= 0) { b.state = 'idle'; b.stateTimer = c.matsuruIdleDuration || 1.2; }
+  else if (b.state === 'recovery' && b.stateTimer <= 0) { b.state = 'idle'; b.stateTimer = debugFastMode ? (Number(CONFIG.debug?.matsuruIdleDurationFast) || c.matsuruIdleDuration || 1.2) : (c.matsuruIdleDuration || 1.2); }
   else if (b.state === 'pineNeedles') {
     if (!b.needlesSpawned) {
       const n = Math.max(1, Number(c.matsuruLeafInitialCount) || 2);
@@ -2987,7 +3045,7 @@ function updateMatsuruBossBattle(dt) {
         b.needles.push({ x: b.x + (b.facingX || -1) * b.radius * 0.45, y: b.y, vx: Math.cos(angle) * (c.matsuruLeafSpeed || 122), vy: Math.sin(angle) * (c.matsuruLeafSpeed || 122), radius: c.MATSUBA_PROJECTILE_RADIUS || 7, life: c.matsuruLeafLifetime || 6.2, damage: c.matsuruNeedleDamage || 10, angle, spin: rand(-3, 3), sway: rand(0.6, 1.4), type: 'moving', source: 'matsuru' });
       }
       b.needlesSpawned = true;
-      b.matsubaCooldown = c.MATSUBA_COOLDOWN || 2.4;
+      b.matsubaCooldown = (debugFastMode ? (Number(CONFIG.debug?.matsuruNeedleCooldownFast) || (c.MATSUBA_COOLDOWN || 2.4)) : (c.MATSUBA_COOLDOWN || 2.4)) / matsubaGrowth;
     }
     if (b.stateTimer <= 0) { b.state = 'idle'; b.stateTimer = c.matsuruIdleDuration || 1.2; }
   } else if (b.state === 'counterTell' && b.stateTimer <= 0) {
@@ -2995,7 +3053,7 @@ function updateMatsuruBossBattle(dt) {
   } else if (b.state === 'counterThrust') {
     b.x = clamp((b.x || 0) + (b.counterVx || 0) * dt, b.radius, CONFIG.canvas.width - b.radius);
     if (!b.hasCounterHit && distance(b, p) <= (b.radius || 84) + (p.radius || 18) + 20 && gameState.damageTimer <= 0) {
-      p.hp -= c.TSURUGAESHI_DAMAGE || 35;
+      if (!isInvincible) p.hp -= c.TSURUGAESHI_DAMAGE || 35;
       const dir = b.facingX || -1;
       p.x = clamp(p.x + dir * (c.TSURUGAESHI_KNOCKBACK || 260) * dt, p.radius, CONFIG.canvas.width - p.radius);
       gameState.damageTimer = CONFIG.enemy.damageCooldown;
@@ -3005,7 +3063,7 @@ function updateMatsuruBossBattle(dt) {
   }
   if (b.state === 'matsukaze' || b.state === 'matsukazeReturn') {
     b.windX += b.windVx * (CONFIG.canvas.width * dt * 0.7); b.multiHitTimer = Math.max(0, (b.multiHitTimer || 0) - dt); const windHit = Math.abs(p.x - b.windX) <= 160 && Math.abs(p.y - b.y) <= 120;
-    if (windHit) { p.x = clamp(p.x + b.windVx * (c.matsuruWindPush || 280) * dt, p.radius, CONFIG.canvas.width - p.radius); if (b.multiHitTimer <= 0) { p.hp -= (c.matsuruWindDamage || 8) * (b.empowered ? (c.matsuruPassiveEmpowerDamageScale || 1.35) : 1); b.multiHitTimer = c.matsuruWindHitCooldown || 0.25; } }
+    if (windHit) { p.x = clamp(p.x + b.windVx * (c.matsuruWindPush || 280) * dt, p.radius, CONFIG.canvas.width - p.radius); if (b.multiHitTimer <= 0) { if (!isInvincible) p.hp -= (c.matsuruWindDamage || 8) * (b.empowered ? (c.matsuruPassiveEmpowerDamageScale || 1.35) : 1); b.multiHitTimer = c.matsuruWindHitCooldown || 0.25; } }
     const leaves = Array.isArray(b.needles) ? b.needles : [];
     const dormant = leaves.filter(n => n && (n.type === 'dormant' || n.type === 'decaying'));
     dormant.slice(0, Math.max(0, Number(c.matsuruMatsukazeReactivateCount) || 3)).forEach(n => { n.type = 'turret'; n.fireTimer = 0.4 + rand(0, 0.6); n.dormantTimer = 0; });
@@ -3039,18 +3097,18 @@ function updateMatsuruBossBattle(dt) {
       n.x += (n.vx || 0) * dt; n.y += (n.vy || 0) * dt; n.angle = Math.atan2(n.vy || 0, n.vx || 1) + Math.sin(n.wave || 0) * 0.12; n.life -= dt;
       const pad = Number(c.matsuruLeafStickPadding) || 16;
       const hitWall = n.x <= pad || n.x >= CONFIG.canvas.width - pad || n.y <= pad || n.y >= CONFIG.canvas.height - pad;
-      if (hitWall) { n.x = clamp(n.x, pad, CONFIG.canvas.width - pad); n.y = clamp(n.y, pad, CONFIG.canvas.height - pad); n.type = 'dormant'; n.activationTimer = Number(c.matsuruTurretActivationDelay) || 1.7; n.dormantTimer = 0; n.baseAngle = n.angle || Math.PI; n.vx = 0; n.vy = 0; n.life = Math.max(n.life, (Number(c.matsuruTurretDormantTimeout) || 11.5) + (Number(c.matsuruTurretDecayDuration) || 6.5) + 2); }
-      if (distance(n, p) <= (n.radius || 7) + (p.radius || 18) && gameState.damageTimer <= 0) { p.hp -= n.damage || 8; gameState.damageTimer = CONFIG.enemy.damageCooldown; n.type = 'decaying'; n.decayTimer = 0.4; }
+      if (hitWall) { n.x = clamp(n.x, pad, CONFIG.canvas.width - pad); n.y = clamp(n.y, pad, CONFIG.canvas.height - pad); n.type = 'dormant'; n.activationTimer = (Number(CONFIG.debug?.matsubaTurretActivationDelay) || Number(c.matsuruTurretActivationDelay) || 1.7) / matsubaGrowth; n.dormantTimer = 0; n.baseAngle = n.angle || Math.PI; n.vx = 0; n.vy = 0; n.life = Math.max(n.life, (Number(c.matsuruTurretDormantTimeout) || 11.5) + (Number(c.matsuruTurretDecayDuration) || 6.5) + 2); }
+      if (distance(n, p) <= (n.radius || 7) + (p.radius || 18) && gameState.damageTimer <= 0) { if (!isInvincible) p.hp -= n.damage || 8; gameState.damageTimer = CONFIG.enemy.damageCooldown; n.type = 'decaying'; n.decayTimer = 0.4; }
     } else if (n.type === 'dormant') {
       n.activationTimer = Math.max(0, (n.activationTimer || 0) - dt); n.dormantTimer = (n.dormantTimer || 0) + dt;
-      if (n.activationTimer <= 0) { n.type = 'turret'; n.fireTimer = Number(c.matsuruTurretFireInterval) || 2.7; }
+      if (n.activationTimer <= 0) { n.type = 'turret'; n.fireTimer = (Number(CONFIG.debug?.matsubaTurretFireInterval) || Number(c.matsuruTurretFireInterval) || 2.7) / matsubaGrowth; }
       if ((n.dormantTimer || 0) > (Number(c.matsuruTurretDormantTimeout) || 11.5)) { n.type = 'decaying'; n.decayTimer = Number(c.matsuruTurretDecayDuration) || 6.5; }
     } else if (n.type === 'turret') {
-      n.fireTimer = (n.fireTimer || Number(c.matsuruTurretFireInterval) || 2.7) - dt;
-      if (n.fireTimer <= 0) { n.fireTimer = Number(c.matsuruTurretFireInterval) || 2.7; fireFromTurret(n); }
+      n.fireTimer = (n.fireTimer || (Number(CONFIG.debug?.matsubaTurretFireInterval) || Number(c.matsuruTurretFireInterval) || 2.7)) - scaledDt * matsubaGrowth;
+      if (n.fireTimer <= 0) { n.fireTimer = (Number(CONFIG.debug?.matsubaTurretFireInterval) || Number(c.matsuruTurretFireInterval) || 2.7) / matsubaGrowth; fireFromTurret(n); }
       n.dormantTimer = (n.dormantTimer || 0) + dt;
       if ((n.dormantTimer || 0) > (Number(c.matsuruTurretDormantTimeout) || 11.5)) { n.type = 'decaying'; n.decayTimer = Number(c.matsuruTurretDecayDuration) || 6.5; }
-      if (distance(n, p) <= (n.radius || 7) + (p.radius || 18) && gameState.damageTimer <= 0) { p.hp -= (n.damage || 8) * 0.65; gameState.damageTimer = CONFIG.enemy.damageCooldown; }
+      if (distance(n, p) <= (n.radius || 7) + (p.radius || 18) && gameState.damageTimer <= 0) { if (!isInvincible) p.hp -= (n.damage || 8) * 0.65; gameState.damageTimer = CONFIG.enemy.damageCooldown; }
     } else if (n.type === 'decaying') {
       n.decayTimer = (n.decayTimer || Number(c.matsuruTurretDecayDuration) || 6.5) - dt;
       if ((n.decayTimer || 0) <= 0) n.life = 0;
@@ -3917,6 +3975,21 @@ function drawHud() {
       ctx.fillText(`Boss In Attack Range: ${inRange}`, 26, 462);
     }
   }
+  if (showDebug && gameState?.duel?.bossType === 'matsuru') {
+    const b = gameState?.duel?.boss;
+    const leaves = Array.isArray(b?.needles) ? b.needles : [];
+    const activeTurrets = leaves.filter(n => n && n.type === 'turret').length;
+    const speedMul = clamp((Number(CONFIG.debug?.matsuruActionSpeedMultiplier) || 1) * (gameState?.debug?.matsuruFastMode ? (Number(CONFIG.debug?.matsuruDebugActionSpeedMultiplier) || 1) : 1) * clamp(Number(gameState?.debug?.matsuruActionSpeedMultiplierOverride) || 1, 0.6, 3.2), 0.6, 3.6);
+    ctx.fillStyle = 'rgba(200,255,200,0.95)';
+    ctx.font = '12px monospace';
+    ctx.fillText(`Invincible: ${Boolean(gameState?.debug?.playerInvincible)}`, 300, 430);
+    ctx.fillText(`Matsuru State: ${b?.state || 'none'}`, 300, 446);
+    ctx.fillText(`Boss Timer: ${(Number(b?.stateTimer) || 0).toFixed(2)}`, 300, 462);
+    ctx.fillText(`Pine Leaves: ${leaves.length}`, 300, 478);
+    ctx.fillText(`Turrets: ${activeTurrets}`, 300, 494);
+    ctx.fillText(`Projectiles: ${(gameState?.projectiles || []).length}`, 300, 510);
+    ctx.fillText(`Speed Mult: ${speedMul.toFixed(2)}x`, 300, 526);
+  }
 }
 
 
@@ -4499,6 +4572,18 @@ window.addEventListener('keydown', e => {
       syncStartMenuUi();
     }
     syncDebugUi();
+    return;
+  }
+  if (e.key === 'F6') {
+    e.preventDefault();
+    ensureDebugState();
+    gameState.debug.playerInvincible = !Boolean(gameState.debug.playerInvincible);
+    return;
+  }
+  if (e.key === 'F7') {
+    e.preventDefault();
+    ensureDebugState();
+    gameState.debug.matsuruFastMode = !Boolean(gameState.debug.matsuruFastMode);
     return;
   }
 
