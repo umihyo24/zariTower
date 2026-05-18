@@ -341,6 +341,7 @@ const CONFIG = {
     visuals: {
       dustParticleCount: 4, stompParticleCount: 6, trailColorFresh: 'rgba(111,82,61,0.22)', trailColorDeep: 'rgba(66,45,32,0.45)',
       bossColorFallback: '#3e342f', impactShakeDuration: 0.2, impactShakeStrength: 5,
+      imageScale: 2.3, prepareSquashY: 0.9, chargeStretchX: 1.1, exhaustedTilt: 0.09, shadowScale: 1.15,
     },
     debug: { debugInvincibleDefault: false, debugFastBossMultiplier: 1 },
   },
@@ -469,6 +470,7 @@ const CONFIG = {
       tododon: 'assets/bosses/tododon.png',
       red_light: 'assets/bosses/red_light.png',
       matsuru: 'assets/monsters/matsuru.png',
+      haginoshishi: 'assets/bosses/haginoshishi.png',
     },
   },
   visuals: {
@@ -3848,7 +3850,14 @@ function drawDuelTododon() {
 function safeDrawImage(img, x, y, w, h) { if (!img || !img.complete || img.naturalWidth <= 0 || img.naturalHeight <= 0) return false; ctx.drawImage(img, x, y, w, h); return true; }
 
 function renderHaginoinoshishiBossBattle() { const duel=gameState?.duel; const b=duel?.boss; const cfg=CONFIG.haginoinoshishi||{}; const rg=cfg.ruinedGround||{}; const v=cfg.visuals||{}; if(!b)return; for(const t of (duel?.ruinedGround||[])){const a=clamp((t.ruinLevel||0)/(Number(rg.maxRuinLevel)||1),0,1); ctx.fillStyle = a>0.55 ? (v.trailColorDeep||'rgba(66,45,32,0.45)') : (v.trailColorFresh||'rgba(111,82,61,0.22)'); ctx.beginPath(); ctx.arc(t.x||0,t.y||0,t.radius||20,0,Math.PI*2); ctx.fill(); }
- const img=gameState?.images?.boss_haginoshishi; const s=(b.radius||76)*2.3; if(img?.loaded&&img?.img){ctx.drawImage(img.img,b.x-s*0.5,b.y-s*0.5,s,s);} else {ctx.fillStyle=v.bossColorFallback||'#3e342f'; ctx.beginPath(); ctx.ellipse(b.x,b.y,(b.radius||76)*1.2,b.state==='prepareCharge'||b.state==='charging'?(b.radius||76)*0.78:(b.radius||76)*0.92,0,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#e9dfd1'; ctx.fillRect(b.x+(Math.cos(b.facing||0)*(b.radius||76)*0.6)-6,b.y+(Math.sin(b.facing||0)*(b.radius||76)*0.6)-4,12,8);} ctx.fillStyle='rgba(10,16,24,0.65)'; ctx.fillRect(580,20,340,54); ctx.fillStyle='#f4f7f9'; ctx.fillText(`HAGINOINOSHISHI ${b.state}`,594,40); ctx.fillText(`Fatigue ${Math.floor(b.fatigue||0)} / ${Math.floor(CONFIG.haginoinoshishi?.boss?.fatigueRequiredForFinal||100)}`,594,62); }
+ const radius=(b.radius||76); const state=b.state||'idle'; const baseScale=Number(v.imageScale)||2.3; const shadowScale=Number(v.shadowScale)||1.15; const prepareSquashY=Number(v.prepareSquashY)||0.9; const chargeStretchX=Number(v.chargeStretchX)||1.1; const exhaustedTilt=Number(v.exhaustedTilt)||0.09;
+ const faceX=(Number(b.facingX)||0)<0?-1:1; const moveAngle=state==='charging'?Math.atan2(Number(b.chargeDirY)||0,Number(b.chargeDirX)||faceX):Math.atan2(Math.sin(Number(b.facing)||0),Math.cos(Number(b.facing)||0));
+ let sx=1,sy=1,tilt=0,offsetY=0; if(state==='prepareCharge'){sx=1.04; sy=prepareSquashY; tilt=0.08*faceX;} else if(state==='charging'){sx=chargeStretchX; sy=0.92; tilt=clamp(moveAngle*0.22,-0.2,0.2);} else if(state==='exhausted'||state==='finalExhausted'){sx=0.96; sy=1.02; tilt=exhaustedTilt*faceX; offsetY=radius*0.16;}
+ ctx.save(); ctx.fillStyle='rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(b.x,b.y+radius*0.72,radius*shadowScale,radius*0.34,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+ const img=getBossImage('haginoshishi'); const s=radius*baseScale*2;
+ if(img&&img.img){ctx.save(); ctx.translate(b.x,b.y+offsetY); ctx.rotate(tilt); ctx.scale(faceX*sx,sy); safeDrawImage(img.img,-s*0.5,-s*0.5,s,s); ctx.restore();}
+ else {ctx.save(); ctx.translate(b.x,b.y+offsetY); ctx.rotate(tilt); ctx.scale(faceX*sx,sy); ctx.fillStyle=v.bossColorFallback||'#3e342f'; ctx.beginPath(); ctx.ellipse(0,0,radius*1.2,state==='prepareCharge'||state==='charging'?radius*0.78:radius*0.92,0,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#e9dfd1'; ctx.fillRect((Math.cos(Number(b.facing)||0)*radius*0.6)-6,(Math.sin(Number(b.facing)||0)*radius*0.6)-4,12,8); ctx.restore();}
+ ctx.fillStyle='rgba(10,16,24,0.65)'; ctx.fillRect(580,20,340,54); ctx.fillStyle='#f4f7f9'; ctx.fillText(`HAGINOINOSHISHI ${b.state}`,594,40); ctx.fillText(`Fatigue ${Math.floor(b.fatigue||0)} / ${Math.floor(CONFIG.haginoinoshishi?.boss?.fatigueRequiredForFinal||100)}`,594,62); }
 
 function renderMatsuruBossBattle() {
   const b = gameState?.duel?.boss; if (!b) return;
