@@ -341,6 +341,15 @@ const CONFIG = {
   },
 
   haginoinoshishi: {
+    contactDamage: 14,
+    chargeDamage: 24,
+    contactKnockback: 180,
+    chargeKnockback: 360,
+    impactStunDuration: 0.2,
+    impactHitCooldown: 0.34,
+    bossImpactSlowMultiplier: 0.84,
+    bossImpactSlowDuration: 0.16,
+    debugInvincibleStillKnockback: true,
     arena: { arenaWidth: 960, arenaHeight: 540, playerStartX: 180, playerStartY: 270, bossStartX: 760, bossStartY: 260 },
     boss: {
       radius: 76, maxHp: 240, maxHpForBarOrDisplay: 240, idleDuration: 1.2, prepareDuration: 0.95, chargeDuration: 2.1, recoveryDuration: 1.0,
@@ -872,6 +881,9 @@ function resetState(nextPhase = gameState.phase || 'start') {
       facingX: -1,
       facingY: 0,
       contactSlowMultiplier: 1,
+      knockbackX: 0,
+      knockbackY: 0,
+      knockbackTimer: 0,
       prevX: CONFIG.canvas.width / 2,
       prevY: CONFIG.canvas.height / 2,
       redLightStunTimer: 0,
@@ -1145,6 +1157,9 @@ function returnToHubFromBoss() {
   player.y = CONFIG.canvas.height * 0.5;
   player.contactSlowMultiplier = 1;
   player.turnPenaltyMultiplier = 1;
+  player.knockbackX = 0;
+  player.knockbackY = 0;
+  player.knockbackTimer = 0;
   if (duel && Array.isArray(duel.ruinedGround)) duel.ruinedGround = [];
 }
 
@@ -1205,10 +1220,11 @@ function startHaginoinoshishiEncounter() {
   gameState.phase = 'duel'; gameState.isPaused = false; gameState.isGameOver = false; gameState.projectiles = []; gameState.manualShots = []; gameState.playerProjectiles = []; gameState.particles = [];
   const p = gameState.player; if (!p) return;
   p.x = clamp(Number(a.playerStartX) || 180, p.radius, (Number(a.arenaWidth) || CONFIG.canvas.width) - p.radius); p.y = clamp(Number(a.playerStartY) || 270, p.radius, (Number(a.arenaHeight) || CONFIG.canvas.height) - p.radius);
+  p.knockbackX = 0; p.knockbackY = 0; p.knockbackTimer = 0;
   gameState.duel = { active: true, isComplete: false, timer: 0, bossType: 'haginoinoshishi', ruinedGround: [], duelParticles: [], cameraShakeTimer: 0, cameraShakeStrength: 0,
     boss: { id:'duel_haginoinoshishi', x:Number(a.bossStartX)||760, y:Number(a.bossStartY)||260, radius:Number(bcfg.radius)||76, hp:Number(cfg.maxHp)||Number(bcfg.maxHp)||100, maxHp:Number(cfg.maxHp)||Number(bcfg.maxHp)||100, phaseLevel:1,
       state:'idle', stateTimer:Number(bcfg.idleDuration)||1.2, facing:Math.PI, chargeDirX:-1, chargeDirY:0, facingX:-1, lockedTargetX:Number(a.playerStartX)||180, lockedTargetY:Number(a.playerStartY)||270,
-      lastTrailX:Number(a.bossStartX)||760, lastTrailY:Number(a.bossStartY)||260, trailDistanceAccumulator:0, chargeCorrectionBudget:0, chargeCorrectionApplied:0, chargeCount:0, currentChargeSpeed:0, currentChargeTurnRate:0, damageTimer:0, fatigue:0, fatigueBonusWindow:0, chargeMissTimer:0, slideTime:0, resistantFlashTimer:0, weakPointFlashTimer:0, hitCooldown:0, returnTimer:0 }
+      lastTrailX:Number(a.bossStartX)||760, lastTrailY:Number(a.bossStartY)||260, trailDistanceAccumulator:0, chargeCorrectionBudget:0, chargeCorrectionApplied:0, chargeCount:0, currentChargeSpeed:0, currentChargeTurnRate:0, damageTimer:0, fatigue:0, fatigueBonusWindow:0, chargeMissTimer:0, slideTime:0, resistantFlashTimer:0, weakPointFlashTimer:0, hitCooldown:0, impactSlowTimer:0, returnTimer:0 }
   };
 }
 
@@ -2510,12 +2526,23 @@ function updatePlayerMovement(dt) {
   }
 
   const mag = Math.hypot(xMove, yMove) || 1;
+  p.knockbackX = Number.isFinite(p.knockbackX) ? p.knockbackX : 0;
+  p.knockbackY = Number.isFinite(p.knockbackY) ? p.knockbackY : 0;
+  p.knockbackTimer = Math.max(0, Number(p.knockbackTimer) || 0);
   const contactSlowMultiplier = Number.isFinite(p.contactSlowMultiplier) && p.contactSlowMultiplier > 0 ? p.contactSlowMultiplier : 1;
-  const effectiveSpeed = p.speed * contactSlowMultiplier;
+  const controlMultiplier = p.knockbackTimer > 0 ? 0.25 : 1;
+  const effectiveSpeed = p.speed * contactSlowMultiplier * controlMultiplier;
   const prevX = p.x;
   const prevY = p.y;
   p.x += (xMove / mag) * effectiveSpeed * dt;
   p.y += (yMove / mag) * effectiveSpeed * dt;
+  p.x += p.knockbackX * dt;
+  p.y += p.knockbackY * dt;
+  p.knockbackX -= p.knockbackX * CONFIG.combat.knockbackDamping * dt;
+  p.knockbackY -= p.knockbackY * CONFIG.combat.knockbackDamping * dt;
+  if (Math.abs(p.knockbackX) < 0.5) p.knockbackX = 0;
+  if (Math.abs(p.knockbackY) < 0.5) p.knockbackY = 0;
+  p.knockbackTimer = Math.max(0, p.knockbackTimer - dt);
   p.x = clamp(p.x, p.radius, CONFIG.canvas.width - p.radius);
   p.y = clamp(p.y, p.radius, CONFIG.canvas.height - p.radius);
   resolveEntityObstacleCollisions(
@@ -3310,7 +3337,46 @@ function updateHaginoinoshishiBossBattle(dt) { const duel=gameState?.duel; const
  else if(b.state==='charging'){const localR=sample(b.x,b.y); const baseTurn=rage?(Number(c.chargeTurnRateRage)||0.42):(Number(c.chargeTurnRate)||0.34); const turn=Math.max(0,baseTurn*(1-localR*(1-(Number(c.ruinedGroundChargeTurnRateMultiplier)||0.5)))); const targetA=Math.atan2(dy,dx), currA=Math.atan2(b.chargeDirY||0,b.chargeDirX||1); let da=((targetA-currA+Math.PI*3)%(Math.PI*2))-Math.PI; const budget=Math.max(0,Number(b.chargeCorrectionBudget)||0); da=clamp(da,-budget,budget); const step=clamp(turn*dt*(1-clamp((Number(c.chargeCorrectionFalloff)||0.74)*fatigueRatio,0,0.85)),0,Math.PI); const applied=clamp(da,-step,step); const na=currA+applied; b.chargeDirX=Math.cos(na); b.chargeDirY=Math.sin(na); b.chargeCorrectionBudget=Math.max(0,budget-Math.abs(applied)); b.facing=Math.atan2(b.chargeDirY,b.chargeDirX); b.facingX=b.chargeDirX; const speed=clamp(phaseCfg.chargeSpeed*(rage?(Number(c.rageSpeedMultiplier)||1.1):1)*(1+localR*((Number(rg.boarSlideMultiplierOnRuinedGround)||1.18)-1)),120,450); b.currentChargeTurnRate=turn; b.currentChargeSpeed=speed; b.x += b.chargeDirX*speed*dt; b.y += b.chargeDirY*speed*dt; const seg=Math.hypot((b.x||0)-(b.lastTrailX||b.x),(b.y||0)-(b.lastTrailY||b.y)); b.trailDistanceAccumulator=(Number(b.trailDistanceAccumulator)||0)+seg; const trailDist=Math.max(6,(Number(rg.trailSpawnDistance)||26)*phaseCfg.trailSpawnDistanceMultiplier); let spawns=0; while(b.trailDistanceAccumulator>=trailDist&&spawns<8){b.trailDistanceAccumulator-=trailDist; const dirLen=Math.hypot((b.x||0)-(b.lastTrailX||b.x),(b.y||0)-(b.lastTrailY||b.y))||1; const dirX=((b.x||0)-(b.lastTrailX||b.x))/dirLen; const dirY=((b.y||0)-(b.lastTrailY||b.y))/dirLen; const nx=(b.lastTrailX||b.x)+dirX*trailDist, ny=(b.lastTrailY||b.y)+dirY*trailDist; addTrail(nx,ny,Number(rg.chargeTrailRadius)||38,1); b.lastTrailX=nx; b.lastTrailY=ny; spawns++;} if(b.stateTimer<=0||b.x<=b.radius||b.x>=(Number(a.arenaWidth)||960)-b.radius||b.y<=b.radius||b.y>=(Number(a.arenaHeight)||540)-b.radius){b.state='recovery'; b.stateTimer=phaseCfg.recoveryDuration; addTrail(b.x,b.y,Number(rg.recoveryTrailRadius)||30,0.85);} }
  else if(b.state==='exhausted' && b.stateTimer<=0){b.state='recovery'; b.stateTimer=Number(c.recoveryDuration)||1.0;}
  else if((b.state==='recovery' || b.state==='exhausted' || b.state==='finalExhausted') && b.stateTimer<=0){b.state='idle'; b.stateTimer=phaseCfg.chargeCooldown;}
- const cr=(Number(b.radius)||76)+(Number(p.radius)||0); if(distance(b,p)<=cr && b.damageTimer<=0){ if(!inv) p.hp-=(b.state==='charging'?(Number(c.chargeDamage)||24):(Number(c.contactDamage)||14)); b.damageTimer=Number(c.damageCooldown)||0.34; const kb=Number(c.playerKnockback)||140; p.x-=dx/dist*kb*dt; p.y-=dy/dist*kb*dt; }
+ if((Number(b.impactSlowTimer)||0)>0){
+  const impactSlow=clamp(Number(cfg.bossImpactSlowMultiplier)||1,0.3,1);
+  b.x -= (Number(b.chargeDirX)||0)*(Number(b.currentChargeSpeed)||0)*(1-impactSlow)*dt;
+  b.y -= (Number(b.chargeDirY)||0)*(Number(b.currentChargeSpeed)||0)*(1-impactSlow)*dt;
+  b.impactSlowTimer=Math.max(0,(Number(b.impactSlowTimer)||0)-dt);
+ }
+ const cr=(Number(b.radius)||76)+(Number(p.radius)||0);
+ const distSq=(Number(p.x)-Number(b.x))**2 + (Number(p.y)-Number(b.y))**2;
+ if(distSq<=cr*cr){
+  const hitCooldown=Math.max(0.05,Number(cfg.impactHitCooldown)||Number(c.damageCooldown)||0.34);
+  if(b.damageTimer<=0){
+    const charging=b.state==='charging';
+    const allowDamage=!inv;
+    const allowKnockback=allowDamage || Boolean(cfg.debugInvincibleStillKnockback);
+    if(allowDamage) p.hp-=charging?(Number(cfg.chargeDamage)||Number(c.chargeDamage)||24):(Number(cfg.contactDamage)||Number(c.contactDamage)||14);
+    if(allowKnockback){
+      let kbX=Number(b.chargeDirX)||0; let kbY=Number(b.chargeDirY)||0;
+      const velLen=Math.hypot(kbX,kbY);
+      if(!(velLen>0.001)){ const ddx=(Number(p.x)||0)-(Number(b.x)||0); const ddy=(Number(p.y)||0)-(Number(b.y)||0); const dlen=Math.hypot(ddx,ddy)||1; kbX=ddx/dlen; kbY=ddy/dlen; } else { kbX/=velLen; kbY/=velLen; }
+      const kbMag=charging?(Number(cfg.chargeKnockback)||260):(Number(cfg.contactKnockback)||140);
+      p.knockbackX=(Number(p.knockbackX)||0)+kbX*kbMag;
+      p.knockbackY=(Number(p.knockbackY)||0)+kbY*kbMag;
+      const maxKb=Math.max(Number(cfg.chargeKnockback)||260,Number(cfg.contactKnockback)||140);
+      const playerKbLen=Math.hypot(Number(p.knockbackX)||0,Number(p.knockbackY)||0);
+      if(playerKbLen>maxKb&&playerKbLen>0){const ks=maxKb/playerKbLen; p.knockbackX*=ks; p.knockbackY*=ks;}
+      p.knockbackTimer=Math.max(Number(p.knockbackTimer)||0,Math.max(0.05,Number(cfg.impactStunDuration)||0.2));
+    }
+    if(charging) b.impactSlowTimer=Math.max(Number(b.impactSlowTimer)||0,Math.max(0.05,Number(cfg.bossImpactSlowDuration)||0.16));
+    b.damageTimer=hitCooldown;
+    duel.cameraShakeTimer=Math.max(Number(duel.cameraShakeTimer)||0,0.12);
+    duel.cameraShakeStrength=Math.max(Number(duel.cameraShakeStrength)||0,charging?5:3);
+    spawnHitParticles((Number(p.x)+Number(b.x))*0.5,(Number(p.y)+Number(b.y))*0.5);
+  }
+  const ox=(Number(p.x)||0)-(Number(b.x)||0); const oy=(Number(p.y)||0)-(Number(b.y)||0);
+  let od=Math.hypot(ox,oy);
+  let nx=ox, ny=oy;
+  if(!(od>0.00001)){nx=1; ny=0; od=1;}
+  const overlap=cr-od;
+  if(overlap>0){ p.x=(Number(p.x)||0)+(nx/od)*overlap; p.y=(Number(p.y)||0)+(ny/od)*overlap; }
+ }
  p.x=clamp(p.x,p.radius,(Number(a.arenaWidth)||960)-p.radius); p.y=clamp(p.y,p.radius,(Number(a.arenaHeight)||540)-p.radius); b.x=clamp(b.x,b.radius,(Number(a.arenaWidth)||960)-b.radius); b.y=clamp(b.y,b.radius,(Number(a.arenaHeight)||540)-b.radius);
  for(let i=patches.length-1;i>=0;i--){const t=patches[i]; if(!t){patches.splice(i,1);continue;} t.life=(t.life||0)-dt; t.ruinLevel=clamp((t.ruinLevel||0)-phaseCfg.groundRecoveryPerSecond*dt,0,Number(rg.maxRuinLevel)||1); if(t.life<=0||t.ruinLevel<=0.02) patches.splice(i,1);} if((p.hp||0)<=0) showGameOver(); }
 
