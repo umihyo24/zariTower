@@ -661,6 +661,17 @@ const EVENT_DEFINITIONS = {
       { label: 'いったん退く', resultText: '距離をとって様子を見ることにした……', action: 'unlockTododonShop' },
     ],
   },
+  haginoinoshishi_defeat: {
+    speaker: 'ハギノシシ',
+    text: 'フゴ……',
+    script: [
+      { speaker: 'ハギノシシ', text: 'フゴ……' },
+      { speaker: 'ハギノシシ', text: 'オマエ、ヨク ヨケタ' },
+      { speaker: 'System', text: 'ハギノシシの技を取得した' },
+      { speaker: 'System', text: '中央庭園へ戻ります' },
+    ],
+    nextFlow: 'haginoinoshishi_return_hub',
+  },
 };
 
 const canvas = document.getElementById('gameCanvas');
@@ -1001,6 +1012,28 @@ function showTododonEvent() {
   eventModal?.classList.remove('hidden');
 }
 
+function startScriptedEvent(eventId, nextFlowOverride = null) {
+  const def = eventId ? EVENT_DEFINITIONS[eventId] : null;
+  if (!def) return;
+  const script = Array.isArray(def.script) ? def.script.filter(step => step && typeof step === 'object') : [];
+  if (!script.length) return;
+  gameState.phase = 'event';
+  gameState.previousPhaseBeforePause = null;
+  gameState.isPaused = true;
+  gameState.pendingEvent = null;
+  gameState.event = {
+    id: eventId,
+    step: 'script',
+    showingResult: true,
+    script,
+    scriptIndex: 0,
+    resultText: String(script[0]?.text || ''),
+    speaker: String(script[0]?.speaker || def.speaker || 'System'),
+    nextFlow: nextFlowOverride || def.nextFlow || 'clear',
+  };
+  eventModal?.classList.remove('hidden');
+}
+
 function applyEventAction(action) {
   if (action === 'unlockTododonShop') unlockTododonShop();
   if (action === 'startBossDuel' && gameState?.event) gameState.event.nextFlow = 'duel_prepare';
@@ -1018,6 +1051,23 @@ function resolveEventChoice(choiceIndex) {
   applyEventAction(selected.action);
   gameState.pendingEvent = null;
   syncStartMenuUi();
+}
+
+function advanceScriptedEventOrClose() {
+  const script = Array.isArray(gameState?.event?.script) ? gameState.event.script : [];
+  if (!script.length) {
+    closeEventToFlow(gameState?.event?.nextFlow || 'clear');
+    return;
+  }
+  const nextIndex = (Number(gameState?.event?.scriptIndex) || 0) + 1;
+  if (nextIndex >= script.length) {
+    closeEventToFlow(gameState?.event?.nextFlow || 'clear');
+    return;
+  }
+  const nextStep = script[nextIndex] || {};
+  gameState.event.scriptIndex = nextIndex;
+  gameState.event.resultText = String(nextStep.text || '');
+  gameState.event.speaker = String(nextStep.speaker || 'System');
 }
 
 function closeTododonEventToClear() {
@@ -1050,6 +1100,41 @@ function closeTododonEventToFlow(nextFlow = 'clear') {
     gameState.phase = nextFlow;
     gameState.isPaused = false;
   });
+}
+
+function returnToHubFromBoss() {
+  const duel = gameState?.duel;
+  const player = gameState?.player;
+  if (!player) return;
+  const cfg = CONFIG.haginoinoshishi || {};
+  const hubId = String(cfg.hubZoneId || 'hub');
+  if (gameState.world) {
+    gameState.world.currentZoneId = hubId;
+    gameState.world.clearedZones = gameState.world.clearedZones || {};
+    gameState.world.clearedZones.haginoinoshishi = true;
+  }
+  gameState.duel = null;
+  gameState.projectiles = [];
+  gameState.manualShots = [];
+  gameState.particles = [];
+  gameState.phase = 'playing';
+  gameState.isPaused = false;
+  gameState.previousPhaseBeforePause = null;
+  eventModal?.classList.add('hidden');
+  player.x = CONFIG.canvas.width * 0.5;
+  player.y = CONFIG.canvas.height * 0.5;
+  player.contactSlowMultiplier = 1;
+  player.turnPenaltyMultiplier = 1;
+  if (duel && Array.isArray(duel.ruinedGround)) duel.ruinedGround = [];
+}
+
+function closeEventToFlow(nextFlow = 'clear') {
+  if (nextFlow === 'haginoinoshishi_return_hub') {
+    gameState.event = null;
+    returnToHubFromBoss();
+    return;
+  }
+  closeTododonEventToFlow(nextFlow);
 }
 
 function getActiveEventDefinition() {
@@ -3111,7 +3196,7 @@ function updateHaginoinoshishiBossBattle(dt) { const duel=gameState?.duel; const
  const patches=Array.isArray(duel.ruinedGround)?duel.ruinedGround:[]; duel.ruinedGround=patches; const sample=(x,y)=>{let max=0;for(const t of patches){if(!t)continue;const dd=Math.hypot((x||0)-(t.x||0),(y||0)-(t.y||0)); if(dd<=(t.radius||0)) max=Math.max(max, Number(t.ruinLevel)||0);} return clamp(max,0,Number(rg.maxRuinLevel)||1);};
  const addTrail=(x,y,r,l)=>{const maxP=Math.max(8,Math.floor(Number(rg.maxTrailPatches)||96)); const deepenR=Math.max(Number(rg.trailDeepenRadius)||46,Number(r)||1); let found=null; for(const t of patches){if(!t)continue; if(Math.hypot((x||0)-(t.x||0),(y||0)-(t.y||0))<=deepenR){found=t;break;}} if(found){found.ruinLevel=clamp((found.ruinLevel||0)+Math.max(0.01,Number(rg.trailDeepenAmount)||0.22)*(Number(l)||1),0,Number(rg.maxRuinLevel)||1); found.life=Math.max(found.life||0,Number(rg.trailLifetime)||16); found.radius=Math.max(Number(found.radius)||0,Number(r)||0);} else {if(patches.length>=maxP) patches.shift(); patches.push({x,y,radius:r,ruinLevel:clamp(Number(l)||0.2,0,Number(rg.maxRuinLevel)||1),life:Number(rg.trailLifetime)||16});}};
  const ruin=sample(p.x,p.y); const ruinSlow=clamp(Number(rg.ruinedGroundSpeedMultiplier)||0.5,0.1,1); const minSlow=Number(rg.minimumRuinedGroundSpeedMultiplier)||0.4; p.contactSlowMultiplier=ruin>0?clamp(ruinSlow,minSlow,1):1; p.turnPenaltyMultiplier=clamp(1-ruin*(1-(Number(rg.turnPenaltyMultiplier)||0.72)),Number(rg.turnPenaltyMultiplier)||0.72,1);
- if(b.state==='defeated'){duel.rewardTimer=Math.max(0,(duel.rewardTimer||0)-dt); b.returnTimer=Math.max(0,(b.returnTimer||0)-dt); if((b.returnTimer||0)<=0){const hubId=String(cfg.hubZoneId||'hub'); if(gameState.world) gameState.world.currentZoneId=hubId; p.x=CONFIG.canvas.width*0.5; p.y=CONFIG.canvas.height*0.5; gameState.duel=null; gameState.phase='playing';} }
+ if(b.state==='defeated'){b.stateTimer=0; b.vx=0; b.vy=0; b.chargeDirX=0; b.chargeDirY=0;}
  else if(b.state==='idle'){b.facing=Math.atan2(dy,dx); b.facingX=Math.cos(b.facing); b.x += Math.cos(b.facing)*(Number(c.walkSpeed)||70)*dt; b.y += Math.sin(b.facing)*(Number(c.walkSpeed)||70)*dt;  if(b.stateTimer<=0){b.state='prepareCharge'; b.stateTimer=phaseCfg.prepareDuration*(rage?(Number(c.ragePrepareMultiplier)||0.8):1);} }
  else if(b.state==='prepareCharge'){const lock=(c.chargeAimLockAtPrepare===true)?1:clamp(Number(c.chargeAimLockAtPrepare)||0.92,0,1); b.lockedTargetX=(b.lockedTargetX||px)*(1-lock)+px*lock; b.lockedTargetY=(b.lockedTargetY||py)*(1-lock)+py*lock; const ldx=b.lockedTargetX-(b.x||0), ldy=b.lockedTargetY-(b.y||0); const ldist=Math.hypot(ldx,ldy)||1; b.chargeDirX=ldx/ldist; b.chargeDirY=ldy/ldist; b.facing=Math.atan2(b.chargeDirY,b.chargeDirX); b.facingX=b.chargeDirX;  if(b.stateTimer<=0){b.state='charging'; b.stateTimer=Number(c.chargeDuration)||2.1; b.chargeMissTimer=0; b.slideTime=0; b.lastTrailX=b.x; b.lastTrailY=b.y; b.trailDistanceAccumulator=0; b.chargeCount=(Number(b.chargeCount)||0)+1; b.chargeCorrectionBudget=(Number(c.chargeMaxCorrectionDegrees)||20)*(Math.PI/180); b.chargeCorrectionApplied=0; addTrail(b.x,b.y,Number(rg.chargeTrailRadius)||38,1);} }
  else if(b.state==='charging'){const localR=sample(b.x,b.y); const baseTurn=rage?(Number(c.chargeTurnRateRage)||0.42):(Number(c.chargeTurnRate)||0.34); const turn=Math.max(0,baseTurn*(1-localR*(1-(Number(c.ruinedGroundChargeTurnRateMultiplier)||0.5)))); const targetA=Math.atan2(dy,dx), currA=Math.atan2(b.chargeDirY||0,b.chargeDirX||1); let da=((targetA-currA+Math.PI*3)%(Math.PI*2))-Math.PI; const budget=Math.max(0,Number(b.chargeCorrectionBudget)||0); da=clamp(da,-budget,budget); const step=clamp(turn*dt*(1-clamp((Number(c.chargeCorrectionFalloff)||0.74)*fatigueRatio,0,0.85)),0,Math.PI); const applied=clamp(da,-step,step); const na=currA+applied; b.chargeDirX=Math.cos(na); b.chargeDirY=Math.sin(na); b.chargeCorrectionBudget=Math.max(0,budget-Math.abs(applied)); b.facing=Math.atan2(b.chargeDirY,b.chargeDirX); b.facingX=b.chargeDirX; const speed=clamp(phaseCfg.chargeSpeed*(rage?(Number(c.rageSpeedMultiplier)||1.1):1)*(1+localR*((Number(rg.boarSlideMultiplierOnRuinedGround)||1.18)-1)),120,450); b.currentChargeTurnRate=turn; b.currentChargeSpeed=speed; b.x += b.chargeDirX*speed*dt; b.y += b.chargeDirY*speed*dt; const seg=Math.hypot((b.x||0)-(b.lastTrailX||b.x),(b.y||0)-(b.lastTrailY||b.y)); b.trailDistanceAccumulator=(Number(b.trailDistanceAccumulator)||0)+seg; const trailDist=Math.max(6,(Number(rg.trailSpawnDistance)||26)*phaseCfg.trailSpawnDistanceMultiplier); let spawns=0; while(b.trailDistanceAccumulator>=trailDist&&spawns<8){b.trailDistanceAccumulator-=trailDist; const dirLen=Math.hypot((b.x||0)-(b.lastTrailX||b.x),(b.y||0)-(b.lastTrailY||b.y))||1; const dirX=((b.x||0)-(b.lastTrailX||b.x))/dirLen; const dirY=((b.y||0)-(b.lastTrailY||b.y))/dirLen; const nx=(b.lastTrailX||b.x)+dirX*trailDist, ny=(b.lastTrailY||b.y)+dirY*trailDist; addTrail(nx,ny,Number(rg.chargeTrailRadius)||38,1); b.lastTrailX=nx; b.lastTrailY=ny; spawns++;} if(b.stateTimer<=0||b.x<=b.radius||b.x>=(Number(a.arenaWidth)||960)-b.radius||b.y<=b.radius||b.y>=(Number(a.arenaHeight)||540)-b.radius){b.state='recovery'; b.stateTimer=phaseCfg.recoveryDuration; addTrail(b.x,b.y,Number(rg.recoveryTrailRadius)||30,0.85);} }
@@ -3505,20 +3590,18 @@ function completeBossEncounter(bossType) {
   if (bossType === 'tododon') unlockTododonShop();
   if (bossType === 'red_light' && gameState.world) gameState.world.redLightBossDefeated = true;
   if (bossType === 'haginoinoshishi') {
-    const cfg = CONFIG.haginoinoshishi || {};
     const boss = duel?.boss || {};
     boss.state = 'defeated';
     boss.stateTimer = 0;
-    boss.returnTimer = Math.max(0.2, Number(cfg.returnToHubDelay) || 2);
-    duel.rewardMessage = String(cfg.rewardMessage || 'ハギノシシの技を取得した');
-    duel.rewardSubtitle = '中央庭園へ戻ります';
-    duel.rewardTimer = Math.max(0.2, Number(cfg.defeatMessageDuration) || 2.4);
+    boss.vx = 0;
+    boss.vy = 0;
+    boss.chargeDirX = 0;
+    boss.chargeDirY = 0;
+    duel.ruinedGround = [];
+    duel.duelParticles = [];
     if (!gameState.meta.unlockedFlags || typeof gameState.meta.unlockedFlags !== 'object') gameState.meta.unlockedFlags = {};
     gameState.meta.unlockedFlags.haginoinoshishiTechnique = true;
-    if (gameState.world) {
-      gameState.world.clearedZones = gameState.world.clearedZones || {};
-      gameState.world.clearedZones.haginoinoshishi = true;
-    }
+    startScriptedEvent('haginoinoshishi_defeat', 'haginoinoshishi_return_hub');
     return;
   }
   showClear();
@@ -4689,7 +4772,7 @@ function drawEventUi() {
   ctx.stroke();
   ctx.fillStyle = '#a8daff';
   ctx.font = `bold ${ui.speakerFontSize || 24}px sans-serif`;
-  ctx.fillText(layout.def.speaker || '???', layout.innerX, layout.speakerY, layout.textW);
+  ctx.fillText(gameState?.event?.speaker || layout.def.speaker || '???', layout.innerX, layout.speakerY, layout.textW);
   ctx.fillStyle = '#fff';
   ctx.font = `${ui.textFontSize || 22}px sans-serif`;
   drawWrappedLines(layout.bodyLines, layout.innerX, layout.bodyY, layout.textW, layout.bodyLineHeight);
@@ -4832,6 +4915,7 @@ window.addEventListener('keydown', e => {
   }
 
   if (gameState.phase === 'event') {
+    const isScriptEvent = Array.isArray(gameState?.event?.script) && gameState.event.script.length > 0;
     const choicesVisible = !gameState?.event?.showingResult;
     const parsed = Number.parseInt(key, 10);
     const eventChoices = Array.isArray(getActiveEventDefinition()?.choices) ? getActiveEventDefinition().choices : [];
@@ -4842,7 +4926,8 @@ window.addEventListener('keydown', e => {
     }
     if (gameState?.event?.showingResult && (key === 'Enter' || key === ' ')) {
       e.preventDefault();
-      closeTododonEventToFlow(gameState?.event?.nextFlow || 'clear')
+      if (isScriptEvent) advanceScriptedEventOrClose();
+      else closeEventToFlow(gameState?.event?.nextFlow || 'clear');
       return;
     }
     return;
@@ -5018,7 +5103,8 @@ clearRestartBtn?.addEventListener('click', () => {
 eventModal?.addEventListener('click', e => {
   if (gameState.phase !== 'event') return;
   if (gameState?.event?.showingResult) {
-    closeTododonEventToFlow(gameState?.event?.nextFlow || 'clear')
+    if (Array.isArray(gameState?.event?.script) && gameState.event.script.length > 0) advanceScriptedEventOrClose();
+    else closeEventToFlow(gameState?.event?.nextFlow || 'clear');
     return;
   }
   const def = getActiveEventDefinition();
