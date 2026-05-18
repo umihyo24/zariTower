@@ -381,6 +381,21 @@ const CONFIG = {
     matsuruPassiveKnockbackScale: 0.22,
     matsuruPassiveEmpowerDelay: 4.5,
     matsuruPassiveEmpowerDamageScale: 1.35,
+    TSURUGAESHI_TRIGGER_RANGE: 90,
+    TSURUGAESHI_TRIGGER_CHANCE: 0.85,
+    TSURUGAESHI_TELL_TIME: 0.28,
+    TSURUGAESHI_SPEED: 620,
+    TSURUGAESHI_DURATION: 0.28,
+    TSURUGAESHI_DAMAGE: 35,
+    TSURUGAESHI_KNOCKBACK: 260,
+    TSURUGAESHI_COOLDOWN: 1.2,
+    MATSUBA_PROJECTILE_COUNT: 5,
+    MATSUBA_SPREAD_ANGLE: 0.9,
+    MATSUBA_PROJECTILE_SPEED: 170,
+    MATSUBA_PROJECTILE_DAMAGE: 12,
+    MATSUBA_PROJECTILE_RADIUS: 7,
+    MATSUBA_CAST_TIME: 0.45,
+    MATSUBA_COOLDOWN: 2.4,
   },
   assets: {
     playerImage: 'assets/Crayfish.png',
@@ -1051,7 +1066,7 @@ function startMatsuruEncounter() {
     boss: {
       id: 'duel_matsuru', x: Number(c.matsuruX) || 770, y: Number(c.matsuruY) || 270, radius: Number(c.matsuruRadius) || 84, hp: Number(c.matsuruHp) || 560, maxHp: Number(c.matsuruHp) || 560,
       state: 'idle', stateTimer: Number(c.matsuruIdleDuration) || 1.2, facingX: -1, attackText: '', attackTextTimer: 0, windX: 0, windVx: 0, windReturning: false,
-      passiveActive: true, lastHitTimer: 0, empowered: false, multiHitTimer: 0, counterTell: false, needles: [], counterVx: 0, contactDamageTimer: 0,
+      passiveActive: true, lastHitTimer: 0, empowered: false, multiHitTimer: 0, counterTell: false, needles: [], counterVx: 0, contactDamageTimer: 0, counterCooldown: 0, matsubaCooldown: 0, needlesSpawned: false, hasCounterHit: false,
     },
     timer: 0,
     isComplete: false,
@@ -2922,13 +2937,47 @@ function updateMatsuruBossBattle(dt) {
   updatePlayerMovement(dt); updatePlayerAttack(dt); updateProjectiles(dt); updateParticles(dt);
   p.x = clamp(p.x, p.radius, CONFIG.canvas.width - p.radius); p.y = clamp(p.y, p.radius, CONFIG.canvas.height - p.radius);
   b.stateTimer = Math.max(0, (b.stateTimer || 0) - dt); b.attackTextTimer = Math.max(0, (b.attackTextTimer || 0) - dt); if (b.attackTextTimer <= 0) b.attackText = '';
+  b.counterCooldown = Math.max(0, (b.counterCooldown || 0) - dt); b.matsubaCooldown = Math.max(0, (b.matsubaCooldown || 0) - dt);
   b.lastHitTimer += dt; b.empowered = b.lastHitTimer >= (c.matsuruPassiveEmpowerDelay || 4.5); b.passiveActive = b.state === 'recovery' ? false : true;
-  if (b.state === 'idle' && b.stateTimer <= 0) { b.state = Math.random() < 0.75 ? 'prepareMatsukaze' : 'pineNeedles'; b.stateTimer = b.state === 'prepareMatsukaze' ? (c.matsuruPrepareDuration || 0.8) : 0.1; b.attackText = b.state === 'prepareMatsukaze' ? '松風の構え…' : '松葉散らし'; b.attackTextTimer = 0.8; }
+  if (b.state === 'idle' && b.stateTimer <= 0) {
+    const canMatsuba = (b.matsubaCooldown || 0) <= 0;
+    const doMatsuba = canMatsuba && Math.random() < 0.25;
+    b.state = doMatsuba ? 'pineNeedles' : 'prepareMatsukaze';
+    b.stateTimer = doMatsuba ? (c.MATSUBA_CAST_TIME || 0.45) : (c.matsuruPrepareDuration || 0.8);
+    b.attackText = doMatsuba ? '松葉散らし' : '松風の構え…';
+    b.attackTextTimer = 0.8;
+    b.needlesSpawned = false;
+  }
   else if (b.state === 'prepareMatsukaze' && b.stateTimer <= 0) { b.state = 'matsukaze'; b.stateTimer = c.matsuruWindDuration || 1.5; b.windX = b.x; b.windVx = -1; b.multiHitTimer = 0; }
   else if (b.state === 'matsukaze' && b.stateTimer <= 0) { b.state = 'matsukazeReturn'; b.stateTimer = c.matsuruReturnDuration || 1.0; b.windVx = 1; b.windReturning = true; }
   else if (b.state === 'matsukazeReturn' && b.stateTimer <= 0) { b.state = 'recovery'; b.stateTimer = c.matsuruRecoveryDuration || 2.0; b.attackText = '松鶴延年が緩んだ！'; b.attackTextTimer = 1.0; }
   else if (b.state === 'recovery' && b.stateTimer <= 0) { b.state = 'idle'; b.stateTimer = c.matsuruIdleDuration || 1.2; }
-  else if (b.state === 'pineNeedles') { if (!Array.isArray(b.needles) || b.needles.length === 0) { const n = Math.max(3, c.matsuruNeedleFanCount || 5); for (let i = 0; i < n; i += 1) { const t = n === 1 ? 0.5 : i / (n - 1); const a = -0.4 + 0.8 * t; b.needles.push({ x: b.x - b.radius * 0.6, y: b.y, vx: -Math.cos(a) * (c.matsuruNeedleSpeed || 160), vy: Math.sin(a) * (c.matsuruNeedleSpeed || 160), radius: 7, life: c.matsuruNeedleLife || 3.6, damage: c.matsuruNeedleDamage || 12 }); } } b.state = 'idle'; b.stateTimer = c.matsuruIdleDuration || 1.2; }
+  else if (b.state === 'pineNeedles') {
+    if (!b.needlesSpawned) {
+      const n = Math.max(3, c.MATSUBA_PROJECTILE_COUNT || 5);
+      const spread = c.MATSUBA_SPREAD_ANGLE || 0.9;
+      for (let i = 0; i < n; i += 1) {
+        const t = n === 1 ? 0.5 : i / (n - 1);
+        const a = -spread * 0.5 + spread * t;
+        b.needles.push({ x: b.x - b.radius * 0.6, y: b.y, vx: -Math.cos(a) * (c.MATSUBA_PROJECTILE_SPEED || 170), vy: Math.sin(a) * (c.MATSUBA_PROJECTILE_SPEED || 170), radius: c.MATSUBA_PROJECTILE_RADIUS || 7, life: c.matsuruNeedleLife || 3.6, damage: c.MATSUBA_PROJECTILE_DAMAGE || 12 });
+      }
+      b.needlesSpawned = true;
+      b.matsubaCooldown = c.MATSUBA_COOLDOWN || 2.4;
+    }
+    if (b.stateTimer <= 0) { b.state = 'idle'; b.stateTimer = c.matsuruIdleDuration || 1.2; }
+  } else if (b.state === 'counterTell' && b.stateTimer <= 0) {
+    b.state = 'counterThrust'; b.stateTimer = c.TSURUGAESHI_DURATION || 0.28; b.counterVx = (b.facingX || -1) * (c.TSURUGAESHI_SPEED || 620); b.hasCounterHit = false;
+  } else if (b.state === 'counterThrust') {
+    b.x = clamp((b.x || 0) + (b.counterVx || 0) * dt, b.radius, CONFIG.canvas.width - b.radius);
+    if (!b.hasCounterHit && distance(b, p) <= (b.radius || 84) + (p.radius || 18) + 20 && gameState.damageTimer <= 0) {
+      p.hp -= c.TSURUGAESHI_DAMAGE || 35;
+      const dir = b.facingX || -1;
+      p.x = clamp(p.x + dir * (c.TSURUGAESHI_KNOCKBACK || 260) * dt, p.radius, CONFIG.canvas.width - p.radius);
+      gameState.damageTimer = CONFIG.enemy.damageCooldown;
+      b.hasCounterHit = true;
+    }
+    if (b.stateTimer <= 0) { b.state = 'idle'; b.stateTimer = c.matsuruIdleDuration || 1.2; b.counterVx = 0; }
+  }
   if (b.state === 'matsukaze' || b.state === 'matsukazeReturn') { b.windX += b.windVx * (CONFIG.canvas.width * dt * 0.7); b.multiHitTimer = Math.max(0, (b.multiHitTimer || 0) - dt); const windHit = Math.abs(p.x - b.windX) <= 160 && Math.abs(p.y - b.y) <= 120; if (windHit) { p.x = clamp(p.x + b.windVx * (c.matsuruWindPush || 280) * dt, p.radius, CONFIG.canvas.width - p.radius); if (b.multiHitTimer <= 0) { p.hp -= (c.matsuruWindDamage || 8) * (b.empowered ? (c.matsuruPassiveEmpowerDamageScale || 1.35) : 1); b.multiHitTimer = c.matsuruWindHitCooldown || 0.25; } } }
   b.needles = (b.needles || []).filter(n => n && n.life > 0 && n.x > -80 && n.x < CONFIG.canvas.width + 80 && n.y > -80 && n.y < CONFIG.canvas.height + 80);
   b.needles.forEach(n => { n.x += n.vx * dt; n.y += n.vy * dt; n.life -= dt; if (distance(n, p) <= n.radius + p.radius && gameState.damageTimer <= 0) { p.hp -= n.damage; gameState.damageTimer = CONFIG.enemy.damageCooldown; n.life = 0; } });
@@ -3013,12 +3062,17 @@ function damageActiveBoss(amount, source = 'unknown') {
         gameState.manualShots.push({ x: boss.x - dirX / d * (boss.radius || 84), y: boss.y - dirY / d * 12, vx: -(dirX / d) * (CONFIG.duel?.matsuruNeedleSpeed || 160), vy: -(dirY / d) * (CONFIG.duel?.matsuruNeedleSpeed || 160), radius: 6, damage: CONFIG.duel?.matsuruNeedleDamage || 12, life: 1.8 });
       }
     }
-    if (isPassive && source === 'manual') {
-      boss.state = 'counter';
-      boss.stateTimer = Number(CONFIG.duel?.matsuruCounterDuration) || 0.45;
-      const dx = (p?.x || 0) - (boss.x || 0); const dy = (p?.y || 0) - (boss.y || 0); const d = Math.hypot(dx, dy) || 1;
-      boss.x += (dx / d) * Math.min(Number(CONFIG.duel?.matsuruCounterRange) || 170, d);
-      if (distance(boss, p) <= (boss.radius || 84) + (p.radius || 18) + 20) p.hp -= Number(CONFIG.duel?.matsuruCounterDamage) || 22;
+    const canCounter = boss.passiveActive && boss.state !== 'recovery' && boss.state !== 'matsukaze' && boss.state !== 'matsukazeReturn' && boss.state !== 'counterTell' && boss.state !== 'counterThrust' && (boss.counterCooldown || 0) <= 0;
+    if (isPassive && source === 'manual' && canCounter && p) {
+      const d = distance(boss, p);
+      if (d <= (c.TSURUGAESHI_TRIGGER_RANGE || 90) && Math.random() < (c.TSURUGAESHI_TRIGGER_CHANCE || 0.85)) {
+        boss.facingX = (p.x || 0) < (boss.x || 0) ? -1 : 1;
+        boss.state = 'counterTell';
+        boss.stateTimer = c.TSURUGAESHI_TELL_TIME || 0.28;
+        boss.counterCooldown = c.TSURUGAESHI_COOLDOWN || 1.2;
+        boss.attackText = '鶴返し';
+        boss.attackTextTimer = 0.5;
+      }
     }
     mult *= isPassive ? passiveReduction : 1;
     boss.lastHitTimer = 0;
@@ -3563,13 +3617,16 @@ function renderMatsuruBossBattle() {
   drawEntityShadow(b, 'rgba(0,0,0,0.45)');
   ctx.save();
   const stretch = b.state === 'matsukaze' || b.state === 'matsukazeReturn' ? 1.15 : 1;
+  const tellLean = b.state === 'counterTell' ? 0.86 : 1;
   const s = b.radius * 2.3;
-  if (!img || !safeDrawImage(img.img, b.x - (s * stretch) * 0.5, b.y - s * 0.5, s * stretch, s)) {
+  if (!img || !safeDrawImage(img.img, b.x - (s * stretch) * 0.5, b.y - s * 0.5, s * stretch * tellLean, s)) {
     ctx.fillStyle = b.passiveActive ? '#2b4a35' : '#88b395';
     ctx.beginPath(); ctx.ellipse(b.x, b.y, b.radius * stretch, b.radius * 0.75, 0, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#d9f5df'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(b.x - b.radius * 0.9, b.y); ctx.lineTo(b.x + b.radius * 0.9, b.y); ctx.stroke();
   }
   if (b.state === 'matsukaze' || b.state === 'matsukazeReturn') { ctx.fillStyle = 'rgba(195,235,255,0.25)'; ctx.fillRect(b.windX - 165, b.y - 110, 330, 220); }
+  if (b.state === 'counterTell') { ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(b.x + (b.facingX || -1) * 26, b.y - 16, 22, 3); }
+  if (b.state === 'counterThrust') { ctx.fillStyle = 'rgba(240,255,245,0.35)'; ctx.fillRect(b.x - (b.facingX || -1) * 46, b.y - 10, 58, 20); }
   (b.needles || []).forEach(n => { ctx.fillStyle = 'rgba(215,255,205,0.95)'; ctx.fillRect(n.x - 6, n.y - 2, 12, 4); });
   ctx.restore();
 }
