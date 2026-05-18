@@ -15,6 +15,21 @@ const CONFIG = {
     maxAttackConeDegrees: 200,
     castOffsetX: -18,
     castOffsetY: -6,
+    playerCardCooldown: 0.34,
+    playerCardSpeed: 560,
+    playerCardLifetime: 1.1,
+    playerCardDamage: 11,
+    playerCardRadius: 8,
+    playerCardKnockback: 95,
+    playerCardMaxProjectiles: 3,
+    playerCardSpreadAngle: 0.04,
+    playerCardVisualWidth: 15,
+    playerCardVisualHeight: 24,
+    playerCardRotationSpeed: 7.2,
+    playerCardTrailAlpha: 0.3,
+    playerCardHitFlashDuration: 0.12,
+    playerCardBossDamageMultiplier: 1,
+    playerCardEnemyDamageMultiplier: 0.7,
   },
   enemy: {
     archetypes: {
@@ -490,6 +505,7 @@ const CONFIG = {
   },
   assets: {
     playerImage: 'assets/Crayfish.png',
+    playerCardImage: 'assets/cards/hanafuda_card.png',
     creatures: {
       tsurumatsu: 'assets/Crayfish.png',
       botancho: 'assets/botancho.png',
@@ -607,6 +623,7 @@ const gameState = {
   event: null,
   duel: null,
   manualShots: [],
+  playerProjectiles: [],
   input: { manualFirePressed: false, manualFireHeld: false },
   screenDarkness: 0,
   currentMutationOptions: [],
@@ -827,6 +844,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
     event: null,
     duel: null,
     manualShots: [],
+    playerProjectiles: [],
     input: { manualFirePressed: false, manualFireHeld: false },
     rangeVisibility: { visible: false, timer: 0 },
     world: { ...CONFIG.worldStateDefaults, visitedZones: { hub: true }, clearedZones: {}, availableExits: {} },
@@ -852,6 +870,7 @@ function resetState(nextPhase = gameState.phase || 'start') {
       attackTimer: 0,
       reflectPct: 0,
       facingX: -1,
+      facingY: 0,
       contactSlowMultiplier: 1,
       prevX: CONFIG.canvas.width / 2,
       prevY: CONFIG.canvas.height / 2,
@@ -1116,6 +1135,7 @@ function returnToHubFromBoss() {
   gameState.duel = null;
   gameState.projectiles = [];
   gameState.manualShots = [];
+  gameState.playerProjectiles = [];
   gameState.particles = [];
   gameState.phase = 'playing';
   gameState.isPaused = false;
@@ -1155,6 +1175,7 @@ function startDuelBattle() {
   eventModal?.classList.add('hidden');
   gameState.enemies = [];
   gameState.projectiles = [];
+  gameState.playerProjectiles = [];
   gameState.xpGems = [];
   gameState.spawnTimer = getCurrentSpawnInterval();
   player.x = clamp(Number(duelConfig.playerStartX) || 160, player.radius, (duelConfig.arenaWidth || CONFIG.canvas.width) - player.radius);
@@ -1181,7 +1202,7 @@ function startDuelBattle() {
 
 function startHaginoinoshishiEncounter() {
   const cfg = CONFIG.haginoinoshishi || {}; const a = cfg.arena || {}; const bcfg = cfg.boss || {};
-  gameState.phase = 'duel'; gameState.isPaused = false; gameState.isGameOver = false; gameState.projectiles = []; gameState.manualShots = []; gameState.particles = [];
+  gameState.phase = 'duel'; gameState.isPaused = false; gameState.isGameOver = false; gameState.projectiles = []; gameState.manualShots = []; gameState.playerProjectiles = []; gameState.particles = [];
   const p = gameState.player; if (!p) return;
   p.x = clamp(Number(a.playerStartX) || 180, p.radius, (Number(a.arenaWidth) || CONFIG.canvas.width) - p.radius); p.y = clamp(Number(a.playerStartY) || 270, p.radius, (Number(a.arenaHeight) || CONFIG.canvas.height) - p.radius);
   gameState.duel = { active: true, isComplete: false, timer: 0, bossType: 'haginoinoshishi', ruinedGround: [], duelParticles: [], cameraShakeTimer: 0, cameraShakeStrength: 0,
@@ -1222,6 +1243,7 @@ function startRedLightEncounter() {
   gameState.pendingEvent = null;
   gameState.enemies = [];
   gameState.projectiles = [];
+  gameState.playerProjectiles = [];
   gameState.particles = [];
   gameState.manualShots = [];
   if (Array.isArray(gameState.enemyBullets)) gameState.enemyBullets = [];
@@ -1283,6 +1305,7 @@ function startMatsuruEncounter() {
   gameState.pendingEvent = null;
   gameState.enemies = [];
   gameState.projectiles = [];
+  gameState.playerProjectiles = [];
   gameState.particles = [];
   gameState.xpGems = [];
   gameState.manualShots = [];
@@ -1410,6 +1433,7 @@ async function preloadImages() {
   const bossEntries = Object.entries(bossAssets).map(([key, src]) => loadImage(`boss_${key}`, src));
   const results = await Promise.all([
     loadImage('player', CONFIG.assets.playerImage),
+    loadImage('playerCard', CONFIG.assets.playerCardImage),
     ...creatureEntries,
     ...bossEntries,
   ]);
@@ -2480,6 +2504,10 @@ function updatePlayerMovement(dt) {
   const yMove = (gameState.keys.ArrowDown || gameState.keys.s ? 1 : 0) - (gameState.keys.ArrowUp || gameState.keys.w ? 1 : 0);
   if (xMove < 0) p.facingX = -1;
   else if (xMove > 0) p.facingX = 1;
+  if (Math.abs(xMove) > 0.001 || Math.abs(yMove) > 0.001) {
+    const moveMag = Math.hypot(xMove, yMove) || 1;
+    p.facingY = yMove / moveMag;
+  }
 
   const mag = Math.hypot(xMove, yMove) || 1;
   const contactSlowMultiplier = Number.isFinite(p.contactSlowMultiplier) && p.contactSlowMultiplier > 0 ? p.contactSlowMultiplier : 1;
@@ -2589,6 +2617,86 @@ function updatePlayerAttack(dt) {
       p.attackTimer = getCurrentAttackCooldown();
     }
   }
+  updatePlayerCardAttack(dt);
+}
+
+function getPlayerCardAimDirection(player) {
+  const fx = Number(player?.facingX);
+  const fy = Number(player?.facingY);
+  const nx = Number.isFinite(fx) ? fx : -1;
+  const ny = Number.isFinite(fy) ? fy : 0;
+  const mag = Math.hypot(nx, ny);
+  if (!Number.isFinite(mag) || mag <= 0.0001) return { x: -1, y: 0 };
+  return { x: nx / mag, y: ny / mag };
+}
+
+function spawnPlayerCardProjectile(player, angle) {
+  if (!player || gameState?.phase !== 'duel') return;
+  const maxProjectiles = Math.max(1, Math.floor(Number(CONFIG.player?.playerCardMaxProjectiles) || 1));
+  const list = Array.isArray(gameState.playerProjectiles) ? gameState.playerProjectiles : [];
+  while (list.length >= maxProjectiles) list.shift();
+  const speed = Math.max(1, Number(CONFIG.player?.playerCardSpeed) || 1);
+  const radius = Math.max(1, Number(CONFIG.player?.playerCardRadius) || 6);
+  const lifetime = Math.max(0.05, Number(CONFIG.player?.playerCardLifetime) || 1);
+  const spread = Number(CONFIG.player?.playerCardSpreadAngle) || 0;
+  const launchAngle = angle + rand(-spread, spread);
+  const dirX = Math.cos(launchAngle);
+  const dirY = Math.sin(launchAngle);
+  list.push({
+    x: Number(player.x) || 0,
+    y: Number(player.y) || 0,
+    vx: dirX * speed,
+    vy: dirY * speed,
+    radius,
+    lifetime,
+    damage: Math.max(0, Number(CONFIG.player?.playerCardDamage) || 0),
+    rotation: launchAngle,
+    rotationSpeed: Number(CONFIG.player?.playerCardRotationSpeed) || 0,
+    active: true,
+  });
+  gameState.playerProjectiles = list;
+}
+
+function updatePlayerCardAttack(dt) {
+  if (gameState?.phase !== 'duel') return;
+  const input = gameState?.input || {};
+  const player = gameState?.player;
+  if (!player) return;
+  player.cardAttackCooldownTimer = Math.max(0, (Number(player.cardAttackCooldownTimer) || 0) - dt);
+  if (!input.manualFirePressed) return;
+  if (player.cardAttackCooldownTimer > 0) return;
+  const dir = getPlayerCardAimDirection(player);
+  const angle = Math.atan2(dir.y, dir.x);
+  spawnPlayerCardProjectile(player, angle);
+  player.cardAttackCooldownTimer = Math.max(0.01, Number(CONFIG.player?.playerCardCooldown) || 0.3);
+  input.manualFirePressed = false;
+}
+
+function updatePlayerProjectiles(dt) {
+  const list = Array.isArray(gameState?.playerProjectiles) ? gameState.playerProjectiles : [];
+  const next = [];
+  const bossTarget = getActiveBossTarget();
+  list.forEach((proj) => {
+    if (!proj || proj.active === false) return;
+    proj.x = (Number(proj.x) || 0) + (Number(proj.vx) || 0) * dt;
+    proj.y = (Number(proj.y) || 0) + (Number(proj.vy) || 0) * dt;
+    proj.lifetime = (Number(proj.lifetime) || 0) - dt;
+    proj.rotation = (Number(proj.rotation) || 0) + (Number(proj.rotationSpeed) || 0) * dt;
+    if (proj.lifetime <= 0) return;
+    const padded = Number(proj.radius) || 0;
+    if (proj.x < -padded || proj.x > CONFIG.canvas.width + padded || proj.y < -padded || proj.y > CONFIG.canvas.height + padded) return;
+    if (isPointInsideObstacle(proj.x, proj.y, 0)) return;
+    if (bossTarget && distance(proj, bossTarget) <= (Number(proj.radius) || 0) + (Number(bossTarget.radius) || 0)) {
+      const bossMul = Number(CONFIG.player?.playerCardBossDamageMultiplier) || 1;
+      const dealt = Math.max(0, (Number(proj.damage) || 0) * bossMul);
+      damageActiveBoss(dealt, 'projectile');
+      bossTarget.weakPointFlashTimer = Math.max(Number(CONFIG.player?.playerCardHitFlashDuration) || 0, Number(bossTarget.weakPointFlashTimer) || 0);
+      proj.active = false;
+      return;
+    }
+    next.push(proj);
+  });
+  gameState.playerProjectiles = next;
 }
 
 function updateTododonWave(dt) {
@@ -3886,6 +3994,7 @@ function update(dt) {
     default:
       break;
   }
+  if (gameState?.phase === 'duel') updatePlayerProjectiles(dt);
 
   detectExitUnlockedOverwrite();
 }
@@ -4018,6 +4127,42 @@ function drawProjectiles() {
     ctx.beginPath();
     ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+  });
+}
+
+function renderPlayerProjectiles() {
+  const projectiles = Array.isArray(gameState?.playerProjectiles) ? gameState.playerProjectiles : [];
+  const cardW = Math.max(1, Number(CONFIG.player?.playerCardVisualWidth) || 14);
+  const cardH = Math.max(1, Number(CONFIG.player?.playerCardVisualHeight) || 22);
+  const trailAlpha = clamp(Number(CONFIG.player?.playerCardTrailAlpha) || 0, 0, 1);
+  const cardImage = gameState?.images?.playerCard;
+  projectiles.forEach((proj) => {
+    if (!proj) return;
+    ctx.save();
+    const ang = Number(proj.rotation) || 0;
+    const vx = Number(proj.vx) || 0;
+    const vy = Number(proj.vy) || 0;
+    const speed = Math.hypot(vx, vy) || 1;
+    ctx.globalAlpha = trailAlpha;
+    ctx.strokeStyle = 'rgba(230, 211, 187, 0.6)';
+    ctx.lineWidth = Math.max(1, cardW * 0.2);
+    ctx.beginPath();
+    ctx.moveTo(proj.x, proj.y);
+    ctx.lineTo(proj.x - (vx / speed) * cardH * 0.8, proj.y - (vy / speed) * cardH * 0.8);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.translate(Number(proj.x) || 0, Number(proj.y) || 0);
+    ctx.rotate(ang);
+    if (!cardImage || !safeDrawImage(cardImage.img, -cardW * 0.5, -cardH * 0.5, cardW, cardH)) {
+      ctx.fillStyle = '#f8f1e2';
+      ctx.strokeStyle = '#d4c3a4';
+      ctx.lineWidth = 1.2;
+      ctx.fillRect(-cardW * 0.5, -cardH * 0.5, cardW, cardH);
+      ctx.strokeRect(-cardW * 0.5, -cardH * 0.5, cardW, cardH);
+      ctx.fillStyle = '#9f342f';
+      ctx.fillRect(-cardW * 0.28, -cardH * 0.34, cardW * 0.56, cardH * 0.2);
+    }
     ctx.restore();
   });
 }
@@ -4369,6 +4514,8 @@ function drawHud() {
       ctx.fillText(`Boss HP: ${Math.ceil(boss.hp)} / ${Math.ceil(boss.maxHp)}`, 26, 430);
       ctx.fillText(`Damageable: ${isActiveBossDamageable()}`, 26, 446);
       ctx.fillText(`Boss In Attack Range: ${inRange}`, 26, 462);
+      ctx.fillText(`Card Proj: ${(gameState?.playerProjectiles || []).length}`, 26, 478);
+      ctx.fillText(`Card CD: ${(Number(gameState?.player?.cardAttackCooldownTimer) || 0).toFixed(2)}`, 26, 494);
     }
   }
   if (showDebug && gameState?.duel?.bossType === 'matsuru') {
@@ -4866,6 +5013,7 @@ function render() {
   drawXpGems();
   drawParticles();
   drawProjectiles();
+  renderPlayerProjectiles();
   drawEnemies();
   if (gameState.phase === 'duel') drawDuelTododon();
   if (gameState.phase === 'duel') drawAirBullets();
@@ -4956,6 +5104,7 @@ window.addEventListener('keydown', e => {
   const canUseCombatHotkeys = gameState.phase === 'playing' || gameState.phase === 'duel';
   if (gameState.phase === 'duel' && key === ' ') {
     e.preventDefault();
+    if (e.repeat) return;
     gameState.input.manualFirePressed = true;
     gameState.input.manualFireHeld = true;
     return;
