@@ -1188,9 +1188,9 @@ function startMatsuruEncounter() {
       matsubaPulseInterval: Number(c.matsubaPulseInterval) || Number(c.matsuruTurretFireInterval) || 2.1,
       matsubaPulsePhase: 0,
       matsubaPulseWaveTimer: 0,
-      matsubaPulseLastProjectileCount: 0,
+      lastMatsubaPulseCount: 0,
       matsukazePulseDelayTimer: 0,
-      matsubaPulseIndex: 0,
+      nextTurretPulseStartIndex: 0,
       matsubaPulseFiringTurrets: 0,
     },
     timer: 0,
@@ -3094,13 +3094,27 @@ function updateHaginoinoshishiBossBattle(dt) { const duel=gameState?.duel; const
  for(let i=patches.length-1;i>=0;i--){const t=patches[i]; if(!t){patches.splice(i,1);continue;} t.life=(t.life||0)-dt; t.ruinLevel=clamp((t.ruinLevel||0)-(Number(rg.trailRecoveryPerSecond)||0.06)*dt,0,Number(rg.maxRuinLevel)||1); if(t.life<=0||t.ruinLevel<=0.02) patches.splice(i,1);} if((p.hp||0)<=0) showGameOver(); }
 
 
+function getMatsukazeDamage() {
+  const c = CONFIG.duel || {};
+  if (Number.isFinite(c.matsukazeDamage)) return Math.max(0, c.matsukazeDamage);
+  if (Number.isFinite(c.matsuruWindDamage)) return Math.max(0, c.matsuruWindDamage);
+  return 0;
+}
+
 function getMatsukazeHitbox(boss) {
   const c = CONFIG.duel || {};
   const width = Math.max(1, Number(c.matsukazeWidth) || (Number(c.matsuruWindWidth) || 160) * 2);
   const height = Math.max(1, Number(c.matsukazeHeight) || (Number(c.matsuruWindHeight) || 120) * 2);
-  const x = clamp((Number(boss?.windX) || 0) - width * 0.5, 0, CONFIG.canvas.width - width);
-  const y = clamp((Number(boss?.matsukazeTargetY) || Number(boss?.y) || 0) - height * 0.5, 0, CONFIG.canvas.height - height);
-  return { x, y, width, height };
+  const margin = Math.max(0, Number(c.matsukazeTargetClampMargin) || 0);
+  const minTargetX = margin + width * 0.5;
+  const maxTargetX = CONFIG.canvas.width - margin - width * 0.5;
+  const minTargetY = margin + height * 0.5;
+  const maxTargetY = CONFIG.canvas.height - margin - height * 0.5;
+  const fallbackX = Number.isFinite(Number(boss?.x)) ? Number(boss?.x) : CONFIG.canvas.width * 0.5;
+  const fallbackY = Number.isFinite(Number(boss?.y)) ? Number(boss?.y) : CONFIG.canvas.height * 0.5;
+  const targetX = clamp(Number.isFinite(Number(boss?.matsukazeTargetX)) ? Number(boss.matsukazeTargetX) : fallbackX, minTargetX, maxTargetX);
+  const targetY = clamp(Number.isFinite(Number(boss?.matsukazeTargetY)) ? Number(boss.matsukazeTargetY) : fallbackY, minTargetY, maxTargetY);
+  return { x: targetX - width * 0.5, y: targetY - height * 0.5, width, height };
 }
 
 function getMatsubaTurretFireAngles(turret, player, config) {
@@ -3111,8 +3125,10 @@ function getMatsubaTurretFireAngles(turret, player, config) {
   const baseToPlayer = Math.atan2(py - ty, px - tx);
   const jitterDistance = Math.max(0, Number(config?.matsubaTurretAimJitterDistance) || 0);
   const jitterAngle = Math.atan2((py + rand(-jitterDistance, jitterDistance)) - ty, (px + rand(-jitterDistance, jitterDistance)) - tx);
-  const aimBias = clamp(Number(config?.matsubaTurretAimBiasToPlayer), 0, 1);
-  let base = Number.isFinite(jitterAngle) ? (baseToPlayer * aimBias + jitterAngle * (1 - aimBias)) : baseToPlayer;
+  const aimBiasRaw = Number(config?.matsubaTurretAimBiasToPlayer);
+  const aimBias = Number.isFinite(aimBiasRaw) ? clamp(aimBiasRaw, 0, 1) : 0.78;
+  const jitterBase = Number.isFinite(jitterAngle) ? jitterAngle : baseToPlayer;
+  let base = baseToPlayer * aimBias + jitterBase * (1 - aimBias);
   const antiWall = clamp(Number(config?.matsubaAntiWallBiasStrength) || 0, 0, 0.8);
   const centerAngle = Math.atan2((CONFIG.canvas.height * 0.5) - ty, (CONFIG.canvas.width * 0.5) - tx);
   base = base * (1 - antiWall) + centerAngle * antiWall;
@@ -3175,7 +3191,7 @@ function updateMatsuruBossBattle(dt) {
     b.attackTextTimer = 0.8;
     b.needlesSpawned = false;
   }
-  else if (b.state === 'prepareMatsukaze' && b.stateTimer <= 0) { b.state = 'matsukaze'; b.stateTimer = Number(c.matsukazeDuration) || c.matsuruWindDuration || 1.5; b.windX = b.x; const lead = Number(c.matsuruMatsukazeTargetLockAhead) || 0; const margin = Math.max(0, Number(c.matsukazeTargetClampMargin) || p.radius); b.matsukazeTargetX = clamp((p.x || 0) + (p.vx || 0) * lead, margin, CONFIG.canvas.width - margin); b.matsukazeTargetY = clamp((p.y || 0) + (p.vy || 0) * lead, margin, CONFIG.canvas.height - margin); b.windVx = b.matsukazeTargetX < b.x ? -1 : 1; b.multiHitTimer = 0; b.matsukazePulseDelayTimer = clamp(Number(c.matsukazePulseSynergyDelay) || 0, 0, Number(c.matsubaPulseInterval) || 2.1); }
+  else if (b.state === 'prepareMatsukaze' && b.stateTimer <= 0) { b.state = 'matsukaze'; b.stateTimer = Number(c.matsukazeDuration) || c.matsuruWindDuration || 1.5; const lead = Number(c.matsuruMatsukazeTargetLockAhead) || 0; const margin = Math.max(0, Number(c.matsukazeTargetClampMargin) || p.radius); b.matsukazeTargetX = clamp((p.x || 0) + (p.vx || 0) * lead, margin, CONFIG.canvas.width - margin); b.matsukazeTargetY = clamp((p.y || 0) + (p.vy || 0) * lead, margin, CONFIG.canvas.height - margin); b.windVx = b.matsukazeTargetX < b.x ? -1 : 1; b.multiHitTimer = 0; b.matsukazePulseDelayTimer = clamp(Number(c.matsukazePulseSynergyDelay) || 0, 0, Number(c.matsubaPulseInterval) || 2.1); }
   else if (b.state === 'matsukaze' && b.stateTimer <= 0) { b.state = 'matsukazeReturn'; b.stateTimer = c.matsuruReturnDuration || 1.0; b.windVx = b.windVx > 0 ? -1 : 1; b.windReturning = true; b.openingDone = true; }
   else if (b.state === 'matsukazeReturn' && b.stateTimer <= 0) { b.state = 'recovery'; b.stateTimer = c.matsuruRecoveryDuration || 2.0; b.attackText = '松鶴延年が緩んだ！'; b.attackTextTimer = 1.0; }
   else if (b.state === 'recovery' && b.stateTimer <= 0) { b.state = 'idle'; b.stateTimer = debugFastMode ? (Number(CONFIG.debug?.matsuruIdleDurationFast) || c.matsuruIdleDuration || 1.2) : (c.matsuruIdleDuration || 1.2); }
@@ -3208,8 +3224,16 @@ function updateMatsuruBossBattle(dt) {
     if (b.stateTimer <= 0) { b.state = 'idle'; b.stateTimer = c.matsuruIdleDuration || 1.2; b.counterVx = 0; }
   }
   if (b.state === 'matsukaze' || b.state === 'matsukazeReturn') {
-    b.windX += b.windVx * (CONFIG.canvas.width * dt * 0.7); b.multiHitTimer = Math.max(0, (b.multiHitTimer || 0) - dt); const windRect = getMatsukazeHitbox(b); const windHit = p.x >= windRect.x && p.x <= windRect.x + windRect.width && p.y >= windRect.y && p.y <= windRect.y + windRect.height;
-    if (windHit) { p.x = clamp(p.x + b.windVx * (Number(c.matsukazePush) || c.matsuruWindPush || 280) * dt, p.radius, CONFIG.canvas.width - p.radius); if (b.multiHitTimer <= 0) { if (!isInvincible) p.hp -= (Number(c.matsukazeDamage) || c.matsuruWindDamage || 8) * (b.empowered ? (c.matsuruPassiveEmpowerDamageScale || 1.35) : 1); b.multiHitTimer = c.matsuruWindHitCooldown || 0.25; } }
+    b.multiHitTimer = Math.max(0, (b.multiHitTimer || 0) - dt); const windRect = getMatsukazeHitbox(b); const windHit = p.x >= windRect.x && p.x <= windRect.x + windRect.width && p.y >= windRect.y && p.y <= windRect.y + windRect.height;
+    if (windHit) {
+      const push = Number.isFinite(Number(c.matsukazePush)) ? Number(c.matsukazePush) : (Number(c.matsuruWindPush) || 0);
+      p.x = clamp(p.x + (b.windVx || 0) * Math.max(0, push) * dt, p.radius, CONFIG.canvas.width - p.radius);
+      if (b.multiHitTimer <= 0) {
+        const damage = getMatsukazeDamage() * (b.empowered ? (Number(c.matsuruPassiveEmpowerDamageScale) || 1.35) : 1);
+        if (damage > 0 && !isInvincible) p.hp = Math.max(0, p.hp - damage);
+        b.multiHitTimer = Number(c.matsuruWindHitCooldown) || 0.25;
+      }
+    }
     const leaves = Array.isArray(b.needles) ? b.needles : [];
     const dormant = leaves.filter(n => n && (n.type === 'dormant' || n.type === 'decaying'));
     dormant.slice(0, Math.max(0, Number(c.matsuruMatsukazeReactivateCount) || 3)).forEach(n => { n.type = 'turret'; n.dormantTimer = 0; });
@@ -3284,14 +3308,14 @@ function updateMatsuruBossBattle(dt) {
   const maxTurretsPerWave = clamp(Math.floor(Number(c.matsubaPulseMaxTurretsPerWave) || 10), 1, Math.max(1, turrets.length || maxActiveTurrets));
   if (b.matsubaPulseTimer <= 0) {
     const sortedTurrets = turrets.slice().sort((a, z) => (a.age || 0) - (z.age || 0));
-    const startIndex = Math.max(0, Math.floor(Number(b.matsubaPulseIndex) || 0)) % Math.max(1, sortedTurrets.length);
+    const startIndex = Math.max(0, Math.floor(Number(b.nextTurretPulseStartIndex) || 0)) % Math.max(1, sortedTurrets.length);
     const waveTurrets = [];
     for (let i = 0; i < Math.min(maxTurretsPerWave, sortedTurrets.length); i += 1) waveTurrets.push(sortedTurrets[(startIndex + i) % sortedTurrets.length]);
     let firedProjectiles = 0;
     waveTurrets.forEach((turret) => { fireFromTurret(turret); firedProjectiles += 2; });
     b.matsubaPulseFiringTurrets = waveTurrets.length;
-    b.matsubaPulseIndex = startIndex + waveTurrets.length;
-    b.matsubaPulseLastProjectileCount = firedProjectiles;
+    b.nextTurretPulseStartIndex = startIndex + waveTurrets.length;
+    b.lastMatsubaPulseCount = firedProjectiles;
     b.matsubaPulseWaveTimer = clamp(Number(c.matsubaPulseWaveVisualDuration) || 0.3, 0.05, 2);
     b.matsubaPulseTimer = pulseInterval;
     b.matsubaPulsePhase = 0;
@@ -4213,11 +4237,13 @@ function drawHud() {
     const windRect = getMatsukazeHitbox(b || {});
     ctx.fillText(`Matsukaze Target: (${Math.round(Number(b?.matsukazeTargetX) || 0)}, ${Math.round(Number(b?.matsukazeTargetY) || 0)})`, 300, 494);
     ctx.fillText(`Matsukaze Rect: (${Math.round(windRect.x)}, ${Math.round(windRect.y)}) ${Math.round(windRect.width)}x${Math.round(windRect.height)}`, 300, 510);
-    ctx.fillText(`Pulse Timer: ${(Number(b?.matsubaPulseTimer) || 0).toFixed(2)}`, 300, 526);
-    ctx.fillText(`Turrets: ${activeTurrets} (Firing: ${Math.floor(Number(b?.matsubaPulseFiringTurrets) || 0)})`, 300, 542);
-    ctx.fillText(`Stuck Leaves: ${stuckLeaves}`, 300, 558);
-    ctx.fillText(`Projectiles: ${leaves.filter(n => n && n.type === 'moving').length}`, 300, 574);
-    ctx.fillText(`Speed Mult: ${speedMul.toFixed(2)}x`, 300, 590);
+    ctx.fillText(`Matsukaze Damage: ${getMatsukazeDamage()}`, 300, 526);
+    ctx.fillText(`Pulse Timer: ${(Number(b?.matsubaPulseTimer) || 0).toFixed(2)}`, 300, 542);
+    ctx.fillText(`Turrets: ${activeTurrets} (Firing: ${Math.floor(Number(b?.matsubaPulseFiringTurrets) || 0)})`, 300, 558);
+    ctx.fillText(`Last Pulse Projectiles: ${Math.floor(Number(b?.lastMatsubaPulseCount) || 0)}`, 300, 574);
+    ctx.fillText(`Stuck Leaves: ${stuckLeaves}`, 300, 590);
+    ctx.fillText(`Projectiles: ${leaves.filter(n => n && n.type === 'moving').length}`, 300, 606);
+    ctx.fillText(`Speed Mult: ${speedMul.toFixed(2)}x`, 300, 622);
     if (b && (b.state === 'matsukaze' || b.state === 'matsukazeReturn')) { ctx.strokeStyle = 'rgba(120,220,255,0.95)'; ctx.lineWidth = 1.5; ctx.strokeRect(windRect.x, windRect.y, windRect.width, windRect.height); }
   }
 }
