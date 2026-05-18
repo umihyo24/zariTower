@@ -31,14 +31,20 @@
             <button id="openTododonShopBtn" type="button" class="hidden">Tododon Shop</button>
             <button id="openDebugMenuBtn" type="button">Debug Menu</button>
           </div>
-          <div id="debugMenu" class="hidden debug-menu-modal">
-            <div class="debug-menu-content">
-            <button id="debugMenuCloseBtn" class="debug-close-button" type="button" aria-label="Close debug menu">✕</button>
-            <h3>Debug Menu</h3>
+
+        </div>
+      </div>
+
+
+      <div id="debugMenuModal" class="debug-menu-modal hidden" aria-hidden="true">
+        <div class="debug-menu-backdrop"></div>
+        <div class="debug-menu-window" role="dialog" aria-modal="true" aria-labelledby="debugMenuTitle">
+          <button id="debugMenuCloseButton" class="debug-close-button" type="button" aria-label="Close debug menu">✕</button>
+          <h2 id="debugMenuTitle">Debug Menu</h2>
+          <div class="debug-menu-content">
             <div id="debugPresetOptions" class="debug-preset-options"></div>
             <button id="startDebugBtn" type="button" class="hidden" aria-hidden="true" tabindex="-1">Start Debug Run</button>
             <button id="debugBackBtn" type="button">Back</button>
-            </div>
           </div>
         </div>
       </div>

@@ -65,14 +65,36 @@ body {
   line-height: 1.35;
 }
 .debug-menu-modal {
-  width: min(100%, 720px);
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+}
+.debug-menu-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+}
+.debug-menu-window {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(92vw, 720px);
+  max-height: min(88vh, calc(100% - 2rem));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.8rem;
+  display: grid;
+  gap: 0.65rem;
 }
 .debug-menu-content {
   width: 100%;
-  max-height: 80vh;
+  min-height: 0;
   overflow-y: auto;
-  box-sizing: border-box;
-  padding: 0.4rem;
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.2rem;
 }
 .debug-close-button {
   margin-left: auto;
@@ -164,7 +186,7 @@ canvas {
   line-height: 1;
 }
 
-#startMainMenu:not(.hidden), #debugMenu:not(.hidden) {
+#startMainMenu:not(.hidden) {
   display: grid;
   gap: 0.6rem;
   max-width: 320px;

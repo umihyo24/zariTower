@@ -558,11 +558,11 @@ const startModal = document.getElementById('startModal');
 const startNormalBtn = document.getElementById('startNormalBtn');
 const openDebugMenuBtn = document.getElementById('openDebugMenuBtn');
 const startMainMenu = document.getElementById('startMainMenu');
-const debugMenu = document.getElementById('debugMenu');
+const debugMenuModal = document.getElementById('debugMenuModal');
 const debugPresetOptions = document.getElementById('debugPresetOptions');
 const debugToggleBtn = document.getElementById('debugToggleBtn');
 const debugInfoPanel = document.getElementById('debugInfoPanel');
-const debugMenuCloseBtn = document.getElementById('debugMenuCloseBtn');
+const debugMenuCloseBtn = document.getElementById('debugMenuCloseButton');
 const startMetaStats = document.getElementById('startMetaStats');
 const startDebugBtn = document.getElementById('startDebugBtn');
 const debugBackBtn = document.getElementById('debugBackBtn');
@@ -762,7 +762,8 @@ function syncStartMetaStats() {
 function syncStartMenuUi() {
   const isDebugMenuOpen = Boolean(gameState?.startUi?.debugMenuOpen) && Boolean(gameState?.debug?.visible);
   startMainMenu?.classList.toggle('hidden', isDebugMenuOpen);
-  debugMenu?.classList.toggle('hidden', !isDebugMenuOpen);
+  debugMenuModal?.classList.toggle('hidden', !isDebugMenuOpen);
+  debugMenuModal?.setAttribute('aria-hidden', String(!isDebugMenuOpen));
   const shopUnlocked = Boolean(gameState?.meta?.unlockedFlags?.tododonShop);
   openTododonShopBtn?.classList.toggle('hidden', !shopUnlocked);
 }
@@ -4297,6 +4298,14 @@ debugMenuCloseBtn?.addEventListener('click', () => {
   gameState.startUi.debugMenuOpen = false;
   syncStartMenuUi();
 });
+
+debugMenuModal?.querySelector('.debug-menu-backdrop')?.addEventListener('click', () => {
+  if (gameState.phase !== 'start') return;
+  gameState.debug.menuOpen = false;
+  gameState.debug.bossMenuOpen = false;
+  gameState.startUi.debugMenuOpen = false;
+  syncStartMenuUi();
+});
 debugToggleBtn?.addEventListener('click', () => {
   if (!gameState.debug || typeof gameState.debug !== 'object') gameState.debug = { visible: false, menuOpen: false, bossMenuOpen: false };
   gameState.debug.visible = !Boolean(gameState.debug.visible);
@@ -4315,9 +4324,10 @@ function syncDebugUi() {
   if (!gameState.debug || typeof gameState.debug !== 'object') gameState.debug = { visible: false, menuOpen: false, bossMenuOpen: false };
   const visible = Boolean(gameState.debug.visible);
   if (debugToggleBtn) debugToggleBtn.setAttribute('aria-pressed', String(visible));
-  if (debugInfoPanel) debugInfoPanel.classList.toggle('hidden', !visible);
+  const shouldShowDebugPanel = visible && (gameState.phase === 'playing' || gameState.phase === 'ending' || gameState.phase === 'duel');
+  if (debugInfoPanel) debugInfoPanel.classList.toggle('hidden', !shouldShowDebugPanel);
   const maxHeightVh = Number.isFinite(CONFIG.ui?.debug?.menuMaxHeightVh) ? CONFIG.ui.debug.menuMaxHeightVh : 80;
-  const menuContent = debugMenu?.querySelector?.('.debug-menu-content');
+  const menuContent = debugMenuModal?.querySelector?.('.debug-menu-content');
   if (menuContent) menuContent.style.maxHeight = `${maxHeightVh}vh`;
 }
 
