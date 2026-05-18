@@ -206,6 +206,16 @@ canvas {
   display: grid;
   gap: 0.5rem;
 }
+.debug-boss-group {
+  display: grid;
+  gap: 0.35rem;
+}
+.debug-boss-group-title {
+  margin: 0.2rem 0 0;
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  color: #a8c4de;
+}
 .debug-boss-card {
   display: grid;
   grid-template-columns: 56px 1fr;
@@ -219,6 +229,13 @@ canvas {
   padding: 0.55rem;
 }
 .debug-boss-card:hover { border-color: var(--accent); }
+.debug-boss-card.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.debug-boss-card.disabled:hover {
+  border-color: #4f6d99;
+}
 .debug-boss-image, .debug-boss-fallback {
   width: 52px;
   height: 52px;
@@ -233,6 +250,16 @@ canvas {
   border: 1px solid #88b9de;
 }
 .debug-boss-info h4 { margin: 0; color: var(--accent); font-size: 0.95rem; }
+.debug-boss-status {
+  display: inline-block;
+  margin-top: 0.15rem;
+  padding: 0.08rem 0.35rem;
+  border-radius: 999px;
+  border: 1px solid #6c8fb8;
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  color: #cfe6ff;
+}
 .debug-boss-info p { margin: 0.2rem 0 0; font-size: 0.82rem; opacity: 0.9; }
 
 .mutation-card h3 {
