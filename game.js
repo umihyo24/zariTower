@@ -566,6 +566,56 @@ const debugMenuCloseBtn = document.getElementById('debugMenuCloseButton');
 const startMetaStats = document.getElementById('startMetaStats');
 const startDebugBtn = document.getElementById('startDebugBtn');
 const debugBackBtn = document.getElementById('debugBackBtn');
+
+const BOSS_REGISTRY = {
+  tododon: {
+    id: 'tododon',
+    label: 'VS Tododon',
+    status: 'playable',
+    description: '巨大な縄張り生物との位置取り戦',
+    imageKey: 'boss_tododon',
+    start: () => startDuelBattle(),
+  },
+  red_light: {
+    id: 'red_light',
+    label: 'VS Red Light Biolume',
+    status: 'playable',
+    description: '光脈のリズムを読む生態戦',
+    imageKey: 'boss_red_light',
+    start: () => startRedLightEncounter(),
+  },
+  matsuru: {
+    id: 'matsuru',
+    label: 'VS Matsuru / マツル',
+    status: 'playable',
+    description: '松風の隙を突く間合い戦',
+    imageKey: 'boss_matsuru',
+    start: () => startMatsuruEncounter(),
+  },
+  haginoinoshishi: {
+    id: 'haginoinoshishi',
+    label: 'ハギノシシ',
+    status: 'concept',
+    description: '設計書のみ。突進を岩へ誘導する縄張り戦。',
+    imageKey: 'boss_haginoshishi',
+    start: null,
+  },
+  gachirinbou: {
+    id: 'gachirinbou',
+    label: 'ガチリンボウ',
+    status: 'concept',
+    description: '設計済み。満月光とすすきの露出管理戦。',
+    start: null,
+  },
+};
+
+const BOSS_STATUS_LABELS = {
+  playable: 'PLAYABLE',
+  prototype: 'PROTOTYPE',
+  concept: 'CONCEPT ONLY',
+};
+
+const BOSS_STATUS_ORDER = ['playable', 'prototype', 'concept'];
 const levelupModal = document.getElementById('levelupModal');
 const mutationOptions = document.getElementById('mutationOptions');
 const gameOverModal = document.getElementById('gameOverModal');
@@ -1283,41 +1333,64 @@ function renderDebugMenu() {
   fragment.appendChild(toggleBossBtn);
 
   if (isBossOpen) {
-    const bossCards = document.createElement('div');
-    bossCards.className = 'debug-boss-cards';
-    Object.values(CONFIG?.bossBattle?.bosses || {}).forEach(boss => {
-      if (!boss?.id) return;
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = 'debug-boss-card';
-      const img = gameState?.images?.[boss.imageKey];
-      const hasImage = Boolean(img && img.complete && img.naturalWidth > 0);
-      const media = hasImage
-        ? `<img src="${img?.src || ''}" alt="${boss.label || boss.id}" class="debug-boss-image">`
-        : '<div class="debug-boss-fallback" aria-hidden="true">◎</div>';
-      card.innerHTML = `${media}<div class="debug-boss-info"><h4>${boss.label || boss.id}</h4><p>${boss.description || ''}</p></div>`;
-      card.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        startBossBattleMode(boss.id);
+    BOSS_STATUS_ORDER.forEach((status) => {
+      const sectionEntries = Object.values(BOSS_REGISTRY).filter(boss => boss?.status === status);
+      if (!sectionEntries.length) return;
+      const section = document.createElement('section');
+      section.className = 'debug-boss-group';
+      section.innerHTML = `<h4 class="debug-boss-group-title">${BOSS_STATUS_LABELS[status] || status}</h4>`;
+      const bossCards = document.createElement('div');
+      bossCards.className = 'debug-boss-cards';
+      sectionEntries.forEach((boss) => {
+        if (!boss?.id) return;
+        const card = document.createElement('button');
+        card.type = 'button';
+        const isEnabled = boss.status === 'playable' || boss.status === 'prototype';
+        card.className = `debug-boss-card${isEnabled ? '' : ' disabled'}`;
+        card.disabled = !isEnabled;
+        const img = gameState?.images?.[boss.imageKey];
+        const hasImage = Boolean(img && img.complete && img.naturalWidth > 0);
+        const media = hasImage
+          ? `<img src="${img?.src || ''}" alt="${boss.label || boss.id}" class="debug-boss-image">`
+          : '<div class="debug-boss-fallback" aria-hidden="true">◎</div>';
+        card.innerHTML = `${media}<div class="debug-boss-info"><h4>${boss.label || boss.id}</h4><span class="debug-boss-status">${BOSS_STATUS_LABELS[boss.status] || boss.status}</span><p>${boss.description || ''}</p></div>`;
+        card.addEventListener('click', (event) => handleDebugBossSelect(boss.id, event));
+        bossCards.appendChild(card);
       });
-      bossCards.appendChild(card);
+      section.appendChild(bossCards);
+      fragment.appendChild(section);
     });
-    fragment.appendChild(bossCards);
   }
   debugPresetOptions.appendChild(fragment);
 }
 
-function startBossBattleMode(bossType) {
+function handleDebugBossSelect(bossId, event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  const boss = BOSS_REGISTRY[bossId];
+  if (!boss) return;
+  if (boss.status !== 'playable' && boss.status !== 'prototype') {
+    console.warn(`Boss ${bossId} is not playable yet.`);
+    return;
+  }
+  if (typeof boss.start !== 'function') {
+    console.warn(`Boss ${bossId} has no start function.`);
+    return;
+  }
+  startBossBattleMode(boss);
+}
+
+function startBossBattleMode(bossEntry) {
   if (!gameState?.debug?.visible) return;
   if (gameState.phase !== 'start') return;
+  if (!bossEntry?.id || typeof bossEntry?.start !== 'function') return;
   closeDebugMenu();
   if (gameState.debug) gameState.debug.showStats = false;
   resetState('playing');
   gameState.debug.enabled = true;
   gameState.debug.targetSurvivalTimeOverride = null;
   gameState.debug.bossBattleMode = true;
-  gameState.debug.bossType = bossType;
+  gameState.debug.bossType = bossEntry.id;
   gameState.debug.menuOpen = false;
   gameState.debug.bossMenuOpen = false;
   gameState.startUi.debugMenuOpen = false;
@@ -1325,11 +1398,15 @@ function startBossBattleMode(bossType) {
   startModal?.classList.add('hidden');
   gameOverModal?.classList.add('hidden');
   clearModal?.classList.add('hidden');
+  bossEntry.start();
+}
 
-  if (bossType === 'tododon') { startDuelBattle(); return; }
-  if (bossType === 'red_light') { startRedLightEncounter(); return; }
-  if (bossType === 'matsuru') { startMatsuruEncounter(); return; }
-  console.warn('[debug] unknown boss battle type', bossType);
+function notifyUnimplementedTerritoryBoss(zone) {
+  const bossId = zone?.territoryBoss;
+  if (!bossId || !gameState?.world) return;
+  const boss = BOSS_REGISTRY[bossId];
+  const isPlayable = boss?.status === 'playable' || boss?.status === 'prototype';
+  if (!isPlayable) setZoneMessage('この生息地のボスは未実装です', CONFIG.world?.messageDuration);
 }
 
 function formatTime(seconds) {
@@ -1755,6 +1832,7 @@ function transitionToZoneImmediately(targetZoneId, direction) {
   gameState.particles = [];
 
   world.zoneTransitionCooldownTimer = Math.max(0, Number(CONFIG.world?.zoneTransitionCooldown) || 0);
+  notifyUnimplementedTerritoryBoss(nextZone);
 
   console.info('[zone] immediate transition', {
     from: previousZoneId,
@@ -1862,6 +1940,7 @@ function completeZoneTransition() {
   world.transitionDirection = null;
 
   repositionPlayerAfterZoneTransition(transitionDirection);
+  notifyUnimplementedTerritoryBoss(nextZone);
 
   gameState.enemies = [];
   gameState.projectiles = [];
